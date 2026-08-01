@@ -41,7 +41,7 @@ This case study is relevant to developers building **autonomous agents** for bus
 │    OpenAI API         9TC-PMO-Automation    9-turnbull-pm-hub
 │    (Classification     (Google Apps Script)  (React Web App)
 │     enhancement)            ↓                    ↓
-│                        GitGub Repo          Dashboard API
+│                        GitHub Repo          Dashboard API
 │                                            (Sheets → KPIs)
 │
 ```
@@ -250,7 +250,7 @@ Routing Pipeline
     ↓
 routeReadyItems() called by trigger:
   1. Filter import sheet for "Ready" status
-  2. Get category from classifer output
+  2. Get category from classifier output
   3. Route to correct register via appendInvoice_(), appendRfi_(), etc.
   4. Link back to Drive file and import row
   5. Timestamp and mark "Imported"
@@ -390,7 +390,7 @@ function getSettings_() {
 
 ### 4. **Configuration in Data, Not Code**
    - Google Sheet cells as config source
-   - Stake holders can adjust thresholds without code deploy
+   - Stakeholders can adjust thresholds without code deploy
 
 ### 5. **Orchestration Over Monoliths**
    - Small, single-purpose functions (classify, route, check, build)
@@ -441,13 +441,28 @@ function getSettings_() {
 
 ## Code Repository Structure
 
+This case study is part of the **Codex** repository and references two related GitHub repositories:
+
+### Codex Repository (this project)
 ```
--9tc-pmo-automation/
+codex/
+├── 9TC_PROJECT_CASE_STUDY.md      # Case study & architecture docs (this file)
+└── README.md                       # Codex CLI project
+```
+
+### Related Repositories (External)
+
+**sjbrenchley89/9tc-pmo-automation** (Google Apps Script automation)
+```
+9tc-pmo-automation/
 ├── Code.gs                         # Main automation (Gmail, routing, dashboard, OpenAI)
 ├── appsscript.json                # Google Apps Script manifest
 ├── DASHBOARD_SETUP.md             # User guide for dashboard
 └── README.md                       # Project README
+```
 
+**sjbrenchley89/9-turnbull-pm-hub** (React web app)
+```
 9-turnbull-pm-hub/
 ├── src/
 │   ├── routes/
@@ -457,9 +472,6 @@ function getSettings_() {
 │       └── RiskBanner.tsx          # RAG status display
 ├── DASHBOARD_INTEGRATION.md        # Web app integration guide
 └── README.md
-
-codex/ (this file)
-└── 9TC_PROJECT_CASE_STUDY.md      # Case study & architecture docs
 ```
 
 ---
