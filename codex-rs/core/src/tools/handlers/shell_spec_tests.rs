@@ -6,6 +6,13 @@ fn windows_shell_guidance_description() -> String {
     format!("\n\n{}", windows_shell_guidance())
 }
 
+fn has_parameter(tool: &ToolSpec, parameter_name: &str) -> bool {
+    serde_json::to_value(tool)
+        .expect("tool spec should serialize")
+        .pointer(&format!("/parameters/properties/{parameter_name}"))
+        .is_some()
+}
+
 #[test]
 fn exec_command_tool_matches_expected_spec() {
     let tool = create_exec_command_tool(CommandToolOptions {
@@ -21,6 +28,11 @@ fn exec_command_tool_matches_expected_spec() {
     } else {
         "Runs a command in a PTY, returning output or a session ID for ongoing interaction."
             .to_string()
+    };
+    let yield_time_ms_description = if cfg!(windows) {
+        "Maximum time to wait before returning a session ID for a still-running command. Commands that finish sooner return immediately. For ordinary commands, omit this parameter to use the 10000 ms default. Effective range on Windows is 10000-30000 ms."
+    } else {
+        "Wait before yielding output. Defaults to 10000 ms; effective range is 250-30000 ms."
     };
 
     let mut properties = BTreeMap::from([
@@ -50,9 +62,7 @@ fn exec_command_tool_matches_expected_spec() {
         ),
         (
             "yield_time_ms".to_string(),
-            JsonSchema::number(Some(
-                    "Wait before yielding output. Defaults to 10000 ms; effective range is 250-30000 ms.".to_string(),
-                )),
+            JsonSchema::number(Some(yield_time_ms_description.to_string())),
         ),
         (
             "max_output_tokens".to_string(),
@@ -86,6 +96,21 @@ fn exec_command_tool_matches_expected_spec() {
             output_schema: Some(unified_exec_output_schema()),
         })
     );
+}
+
+#[test]
+fn exec_command_tool_can_hide_shell_parameter() {
+    let tool = create_exec_command_tool_with_environment_id(
+        CommandToolOptions {
+            allow_login_shell: true,
+            exec_permission_approvals_enabled: false,
+        },
+        /*include_environment_id*/ false,
+        /*include_shell_parameter*/ false,
+    );
+
+    assert!(!has_parameter(&tool, "shell"));
+    assert!(has_parameter(&tool, "cmd"));
 }
 
 #[test]
@@ -148,6 +173,13 @@ fn request_permissions_tool_includes_full_permission_schema() {
             "reason".to_string(),
             JsonSchema::string(Some(
                 "Optional short explanation for why additional permissions are needed.".to_string(),
+            )),
+        ),
+        (
+            "environment_id".to_string(),
+            JsonSchema::string(Some(
+                "Environment id from <environment_context>. Omit to use the primary environment."
+                    .to_string(),
             )),
         ),
         ("permissions".to_string(), permission_profile_schema()),

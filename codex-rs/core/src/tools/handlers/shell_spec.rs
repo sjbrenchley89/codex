@@ -13,13 +13,21 @@ pub struct CommandToolOptions {
 
 #[cfg(test)]
 pub fn create_exec_command_tool(options: CommandToolOptions) -> ToolSpec {
-    create_exec_command_tool_with_environment_id(options, /*include_environment_id*/ false)
+    create_exec_command_tool_with_environment_id(
+        options, /*include_environment_id*/ false, /*include_shell_parameter*/ true,
+    )
 }
 
 pub(crate) fn create_exec_command_tool_with_environment_id(
     options: CommandToolOptions,
     include_environment_id: bool,
+    include_shell_parameter: bool,
 ) -> ToolSpec {
+    let yield_time_ms_description = if cfg!(windows) {
+        "Maximum time to wait before returning a session ID for a still-running command. Commands that finish sooner return immediately. For ordinary commands, omit this parameter to use the 10000 ms default. Effective range on Windows is 10000-30000 ms."
+    } else {
+        "Wait before yielding output. Defaults to 10000 ms; effective range is 250-30000 ms."
+    };
     let mut properties = BTreeMap::from([
         (
             "cmd".to_string(),
@@ -33,12 +41,6 @@ pub(crate) fn create_exec_command_tool_with_environment_id(
             )),
         ),
         (
-            "shell".to_string(),
-            JsonSchema::string(Some(
-                "Shell binary to launch. Defaults to the user's default shell.".to_string(),
-            )),
-        ),
-        (
             "tty".to_string(),
             JsonSchema::boolean(Some(
                 "True allocates a PTY for the command; false or omitted uses plain pipes."
@@ -47,9 +49,7 @@ pub(crate) fn create_exec_command_tool_with_environment_id(
         ),
         (
             "yield_time_ms".to_string(),
-            JsonSchema::number(Some(
-                "Wait before yielding output. Defaults to 10000 ms; effective range is 250-30000 ms.".to_string(),
-            )),
+            JsonSchema::number(Some(yield_time_ms_description.to_string())),
         ),
         (
             "max_output_tokens".to_string(),
@@ -58,6 +58,14 @@ pub(crate) fn create_exec_command_tool_with_environment_id(
             )),
         ),
     ]);
+    if include_shell_parameter {
+        properties.insert(
+            "shell".to_string(),
+            JsonSchema::string(Some(
+                "Shell binary to launch. Defaults to the user's default shell.".to_string(),
+            )),
+        );
+    }
     if options.allow_login_shell {
         properties.insert(
             "login".to_string(),
@@ -224,6 +232,13 @@ pub fn create_request_permissions_tool(description: String) -> ToolSpec {
                 "Optional short explanation for why additional permissions are needed.".to_string(),
             )),
         ),
+        (
+            "environment_id".to_string(),
+            JsonSchema::string(Some(
+                "Environment id from <environment_context>. Omit to use the primary environment."
+                    .to_string(),
+            )),
+        ),
         ("permissions".to_string(), permission_profile_schema()),
     ]);
 
@@ -242,7 +257,7 @@ pub fn create_request_permissions_tool(description: String) -> ToolSpec {
 }
 
 pub fn request_permissions_tool_description() -> String {
-    "Request additional filesystem or network permissions from the user and wait for the client to grant a subset of the requested permission profile. Granted permissions apply automatically to later shell-like commands in the current turn, or for the rest of the session if the client approves them at session scope."
+    "Request additional filesystem or network permissions from the user and wait for the client to grant a subset of the requested permission profile. Use environment_id to target a specific attached environment; omit it to use the primary environment. Relative filesystem paths resolve against the selected environment cwd. Granted permissions apply automatically to later shell-like commands in the current turn, or for the rest of the session if the client approves them at session scope."
         .to_string()
 }
 

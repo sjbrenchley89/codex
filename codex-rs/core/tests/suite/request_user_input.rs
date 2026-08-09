@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
+use core_test_support::test_codex::local_selections;
 use std::collections::HashMap;
 
 use codex_features::Feature;
@@ -13,6 +14,7 @@ use codex_protocol::protocol::Op;
 use codex_protocol::request_user_input::RequestUserInputAnswer;
 use codex_protocol::request_user_input::RequestUserInputResponse;
 use codex_protocol::user_input::UserInput;
+use core_test_support::TempDirExt;
 use core_test_support::responses;
 use core_test_support::responses::ResponsesRequest;
 use core_test_support::responses::ev_assistant_message;
@@ -41,14 +43,10 @@ fn call_output(req: &ResponsesRequest, call_id: &str) -> String {
         Some(call_id),
         "mismatched call_id in function_call_output"
     );
-    let (content_opt, _success) = match req.function_call_output_content_and_success(call_id) {
-        Some(values) => values,
-        None => panic!("function_call_output present"),
-    };
-    match content_opt {
-        Some(content) => content,
-        None => panic!("function_call_output content present"),
-    }
+    let (content_opt, _success) = req
+        .function_call_output_content_and_success(call_id)
+        .expect("function_call_output present");
+    content_opt.expect("function_call_output content present")
 }
 
 fn call_output_content_and_success(
@@ -61,14 +59,10 @@ fn call_output_content_and_success(
         Some(call_id),
         "mismatched call_id in function_call_output"
     );
-    let (content_opt, success) = match req.function_call_output_content_and_success(call_id) {
-        Some(values) => values,
-        None => panic!("function_call_output present"),
-    };
-    let content = match content_opt {
-        Some(content) => content,
-        None => panic!("function_call_output content present"),
-    };
+    let (content_opt, success) = req
+        .function_call_output_content_and_success(call_id)
+        .expect("function_call_output present");
+    let content = content_opt.expect("function_call_output content present");
     (content, success)
 }
 
@@ -83,7 +77,6 @@ async fn request_user_input_round_trip_for_mode(mode: ModeKind) -> anyhow::Resul
     let server = start_mock_server().await;
 
     let builder = test_codex();
-    #[allow(clippy::expect_used)]
     let TestCodex {
         codex,
         cwd,
@@ -102,6 +95,7 @@ async fn request_user_input_round_trip_for_mode(mode: ModeKind) -> anyhow::Resul
         .await?;
 
     let call_id = "user-input-call";
+    let expected_is_blocking = mode == ModeKind::Plan;
     let request_args = json!({
         "questions": [{
             "id": "confirm_path",
@@ -115,8 +109,8 @@ async fn request_user_input_round_trip_for_mode(mode: ModeKind) -> anyhow::Resul
                 "description": "Stop and revisit the approach."
             }]
         }]
-    })
-    .to_string();
+    });
+    let request_args = request_args.to_string();
 
     let first_response = sse(vec![
         ev_response_created("resp-1"),
@@ -141,12 +135,11 @@ async fn request_user_input_round_trip_for_mode(mode: ModeKind) -> anyhow::Resul
                 text: "please confirm".into(),
                 text_elements: Vec::new(),
             }],
-            environments: None,
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(cwd.path().to_path_buf()),
+                environments: Some(local_selections(cwd.abs())),
                 approval_policy: Some(AskForApproval::Never),
                 sandbox_policy: Some(sandbox_policy),
                 permission_profile,
@@ -170,14 +163,16 @@ async fn request_user_input_round_trip_for_mode(mode: ModeKind) -> anyhow::Resul
     .await;
     assert_eq!(request.call_id, call_id);
     assert_eq!(request.questions.len(), 1);
+    assert_eq!(request.is_blocking, expected_is_blocking);
+    assert_eq!(request.auto_resolution_ms, None);
     assert_eq!(request.questions[0].is_other, true);
     assert!(
         timeout(Duration::from_millis(200), async {
             loop {
-                let event = match codex.next_event().await {
-                    Ok(event) => event,
-                    Err(err) => panic!("event stream should stay open: {err}"),
-                };
+                let event = codex
+                    .next_event()
+                    .await
+                    .expect("event stream should stay open");
                 if matches!(event.msg, EventMsg::TokenCount(_)) {
                     return;
                 }
@@ -285,12 +280,11 @@ async fn request_user_input_interrupt_emits_deferred_token_count() -> anyhow::Re
                 text: "please confirm".into(),
                 text_elements: Vec::new(),
             }],
-            environments: None,
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(cwd.path().to_path_buf()),
+                environments: Some(local_selections(cwd.abs())),
                 approval_policy: Some(AskForApproval::Never),
                 sandbox_policy: Some(sandbox_policy),
                 permission_profile,
@@ -390,12 +384,11 @@ where
                 text: "please confirm".into(),
                 text_elements: Vec::new(),
             }],
-            environments: None,
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
             additional_context: Default::default(),
             thread_settings: codex_protocol::protocol::ThreadSettingsOverrides {
-                cwd: Some(cwd.path().to_path_buf()),
+                environments: Some(local_selections(cwd.abs())),
                 approval_policy: Some(AskForApproval::Never),
                 sandbox_policy: Some(sandbox_policy),
                 permission_profile,
@@ -419,19 +412,6 @@ where
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn request_user_input_rejected_in_execute_mode_alias() -> anyhow::Result<()> {
-    assert_request_user_input_rejected("Execute", |model| CollaborationMode {
-        mode: ModeKind::Execute,
-        settings: Settings {
-            model,
-            reasoning_effort: None,
-            developer_instructions: None,
-        },
-    })
-    .await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_user_input_rejected_in_default_mode_by_default() -> anyhow::Result<()> {
     assert_request_user_input_rejected("Default", |model| CollaborationMode {
         mode: ModeKind::Default,
@@ -447,17 +427,4 @@ async fn request_user_input_rejected_in_default_mode_by_default() -> anyhow::Res
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_user_input_round_trip_in_default_mode_with_feature() -> anyhow::Result<()> {
     request_user_input_round_trip_for_mode(ModeKind::Default).await
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn request_user_input_rejected_in_pair_mode_alias() -> anyhow::Result<()> {
-    assert_request_user_input_rejected("Pair Programming", |model| CollaborationMode {
-        mode: ModeKind::PairProgramming,
-        settings: Settings {
-            model,
-            reasoning_effort: None,
-            developer_instructions: None,
-        },
-    })
-    .await
 }

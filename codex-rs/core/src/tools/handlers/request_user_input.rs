@@ -5,8 +5,9 @@ use crate::tools::context::ToolPayload;
 use crate::tools::context::boxed_tool_output;
 use crate::tools::handlers::parse_arguments;
 use crate::tools::handlers::request_user_input_spec::REQUEST_USER_INPUT_TOOL_NAME;
+use crate::tools::handlers::request_user_input_spec::RequestUserInputToolArgs;
 use crate::tools::handlers::request_user_input_spec::create_request_user_input_tool;
-use crate::tools::handlers::request_user_input_spec::normalize_request_user_input_args;
+use crate::tools::handlers::request_user_input_spec::normalize_request_user_input_tool_args;
 use crate::tools::handlers::request_user_input_spec::request_user_input_tool_description;
 use crate::tools::handlers::request_user_input_spec::request_user_input_unavailable_message;
 use crate::tools::registry::CoreToolRuntime;
@@ -20,7 +21,6 @@ pub struct RequestUserInputHandler {
     pub available_modes: Vec<ModeKind>,
 }
 
-#[async_trait::async_trait]
 impl ToolExecutor<ToolInvocation> for RequestUserInputHandler {
     fn tool_name(&self) -> ToolName {
         ToolName::plain(REQUEST_USER_INPUT_TOOL_NAME)
@@ -30,7 +30,13 @@ impl ToolExecutor<ToolInvocation> for RequestUserInputHandler {
         create_request_user_input_tool(request_user_input_tool_description(&self.available_modes))
     }
 
-    async fn handle(
+    fn handle(&self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'_> {
+        Box::pin(self.handle_call(invocation))
+    }
+}
+
+impl RequestUserInputHandler {
+    async fn handle_call(
         &self,
         invocation: ToolInvocation,
     ) -> Result<Box<dyn crate::tools::context::ToolOutput>, FunctionCallError> {
@@ -57,14 +63,19 @@ impl ToolExecutor<ToolInvocation> for RequestUserInputHandler {
             ));
         }
 
-        let mode = session.collaboration_mode().await.mode;
+        let mode = turn.collaboration_mode().mode;
         if let Some(message) = request_user_input_unavailable_message(mode, &self.available_modes) {
             return Err(FunctionCallError::RespondToModel(message));
         }
 
-        let args: RequestUserInputArgs = parse_arguments(&arguments)?;
-        let args =
-            normalize_request_user_input_args(args).map_err(FunctionCallError::RespondToModel)?;
+        let args: RequestUserInputToolArgs = parse_arguments(&arguments)?;
+        let args = normalize_request_user_input_tool_args(args)
+            .map_err(FunctionCallError::RespondToModel)?;
+        let args = RequestUserInputArgs {
+            questions: args.questions,
+            is_blocking: mode == ModeKind::Plan,
+            auto_resolution_ms: None,
+        };
         let response = session
             .request_user_input(turn.as_ref(), call_id, args)
             .await

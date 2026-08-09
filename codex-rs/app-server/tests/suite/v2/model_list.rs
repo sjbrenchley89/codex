@@ -1,13 +1,13 @@
 use std::time::Duration;
 
+use anyhow::Error;
 use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
-use app_test_support::McpProcess;
-use app_test_support::to_response;
+use app_test_support::TestAppServer;
 use app_test_support::write_chatgpt_auth;
 use app_test_support::write_models_cache;
+use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::JSONRPCError;
-use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::Model;
 use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::ModelListResponse;
@@ -16,6 +16,7 @@ use codex_app_server_protocol::ModelUpgradeInfo;
 use codex_app_server_protocol::ReasoningEffortOption;
 use codex_app_server_protocol::RequestId;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ModelsResponse;
@@ -43,22 +44,24 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
         availability_nux: preset.availability_nux.clone().map(Into::into),
         display_name: preset.display_name.clone(),
         description: preset.description.clone(),
+        model_specialty: preset.model_specialty.clone(),
         hidden: !preset.show_in_picker,
         supported_reasoning_efforts: preset
             .supported_reasoning_efforts
             .iter()
             .map(|preset| ReasoningEffortOption {
-                reasoning_effort: preset.effort,
+                reasoning_effort: preset.effort.clone(),
                 description: preset.description.clone(),
             })
             .collect(),
-        default_reasoning_effort: preset.default_reasoning_effort,
+        default_reasoning_effort: preset.default_reasoning_effort.clone(),
         input_modalities: preset.input_modalities.clone(),
         // `write_models_cache()` round-trips through a simplified ModelInfo fixture that does not
         // preserve personality placeholders in base instructions, so app-server list results from
         // cache report `supports_personality = false`.
         // todo(sayan): fix, maybe make roundtrip use ModelInfo only
         supports_personality: false,
+        multi_agent_version: preset.multi_agent_version.map(Into::into),
         additional_speed_tiers: preset.additional_speed_tiers.clone(),
         service_tiers: preset
             .service_tiers
@@ -95,28 +98,24 @@ fn expected_visible_models() -> Vec<Model> {
 async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path())?;
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
-
-    let request_id = mcp
-        .send_list_models_request(ModelListParams {
-            limit: Some(100),
-            cursor: None,
-            include_hidden: None,
-        })
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
         .await?;
-
-    let response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
     let ModelListResponse {
         data: items,
         next_cursor,
-    } = to_response::<ModelListResponse>(response)?;
+    } = mcp
+        .request(|request_id| ClientRequest::ModelList {
+            request_id,
+            params: ModelListParams {
+                limit: Some(100),
+                cursor: None,
+                include_hidden: None,
+            },
+        })
+        .await?;
 
     let expected_models = expected_visible_models();
 
@@ -129,28 +128,24 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
 async fn list_models_includes_hidden_models() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path())?;
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
-
-    let request_id = mcp
-        .send_list_models_request(ModelListParams {
-            limit: Some(100),
-            cursor: None,
-            include_hidden: Some(true),
-        })
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
         .await?;
-
-    let response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
     let ModelListResponse {
         data: items,
         next_cursor,
-    } = to_response::<ModelListResponse>(response)?;
+    } = mcp
+        .request(|request_id| ClientRequest::ModelList {
+            request_id,
+            params: ModelListParams {
+                limit: Some(100),
+                cursor: None,
+                include_hidden: Some(true),
+            },
+        })
+        .await?;
 
     assert!(items.iter().any(|item| item.hidden));
     assert!(next_cursor.is_none());
@@ -164,10 +159,12 @@ async fn list_models_uses_chatgpt_remote_catalog_as_source_of_truth() -> Result<
         "slug": "chatgpt-remote-only",
         "display_name": "ChatGPT Remote Only",
         "description": "Remote-only model for app-server model/list coverage",
-        "default_reasoning_level": "medium",
+        "model_specialty": MODEL_SPECIALTY_CYBER,
+        "default_reasoning_level": "max",
         "supported_reasoning_levels": [
-            {"effort": "low", "description": "low"},
-            {"effort": "medium", "description": "medium"}
+            {"effort": "max", "description": "Maximum"},
+            {"effort": "low", "description": "Low"},
+            {"effort": "focused", "description": "Focused"}
         ],
         "shell_type": "shell_command",
         "visibility": "list",
@@ -175,14 +172,13 @@ async fn list_models_uses_chatgpt_remote_catalog_as_source_of_truth() -> Result<
         "supported_in_api": true,
         "priority": 0,
         "upgrade": null,
-        "base_instructions": "base instructions",
-        "supports_reasoning_summaries": false,
         "support_verbosity": false,
         "default_verbosity": null,
         "apply_patch_tool_type": null,
         "truncation_policy": {"mode": "bytes", "limit": 10_000},
         "supports_parallel_tool_calls": false,
         "supports_image_detail_original": false,
+        "multi_agent_version": "v2",
         "context_window": 272_000,
         "max_context_window": 272_000,
         "experimental_supported_tools": [],
@@ -214,33 +210,45 @@ openai_base_url = "{server_uri}/v1"
         AuthCredentialsStoreMode::File,
     )?;
 
-    let mut mcp = McpProcess::new_with_env(codex_home.path(), &[("OPENAI_API_KEY", None)]).await?;
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
-
-    let request_id = mcp
-        .send_list_models_request(ModelListParams {
-            limit: Some(100),
-            cursor: None,
-            include_hidden: None,
-        })
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .with_env_overrides(&[("OPENAI_API_KEY", None)])
+        .build_initialized()
         .await?;
-
-    let response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-
     let ModelListResponse {
         data: items,
         next_cursor,
-    } = to_response::<ModelListResponse>(response)?;
+    } = mcp
+        .request(|request_id| ClientRequest::ModelList {
+            request_id,
+            params: ModelListParams {
+                limit: Some(100),
+                cursor: None,
+                include_hidden: None,
+            },
+        })
+        .await?;
     let mut expected_presets: Vec<ModelPreset> = vec![remote_model.into()];
     ModelPreset::mark_default_by_picker_visibility(&mut expected_presets);
-    let expected_items = expected_presets
+    let mut expected_items = expected_presets
         .iter()
         .map(model_from_preset)
         .collect::<Vec<_>>();
+    expected_items[0].supported_reasoning_efforts = vec![
+        ReasoningEffortOption {
+            reasoning_effort: "max".parse().map_err(Error::msg)?,
+            description: "Maximum".to_string(),
+        },
+        ReasoningEffortOption {
+            reasoning_effort: "low".parse().map_err(Error::msg)?,
+            description: "Low".to_string(),
+        },
+        ReasoningEffortOption {
+            reasoning_effort: "focused".parse().map_err(Error::msg)?,
+            description: "Focused".to_string(),
+        },
+    ];
 
     assert_eq!(items, expected_items);
     assert!(next_cursor.is_none());
@@ -256,33 +264,30 @@ openai_base_url = "{server_uri}/v1"
 async fn list_models_pagination_works() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path())?;
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
 
     let expected_models = expected_visible_models();
     let mut cursor = None;
     let mut items = Vec::new();
 
     for _ in 0..expected_models.len() {
-        let request_id = mcp
-            .send_list_models_request(ModelListParams {
-                limit: Some(1),
-                cursor: cursor.clone(),
-                include_hidden: None,
-            })
-            .await?;
-
-        let response: JSONRPCResponse = timeout(
-            DEFAULT_TIMEOUT,
-            mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
-        )
-        .await??;
-
         let ModelListResponse {
             data: page_items,
             next_cursor,
-        } = to_response::<ModelListResponse>(response)?;
+        } = mcp
+            .request(|request_id| ClientRequest::ModelList {
+                request_id,
+                params: ModelListParams {
+                    limit: Some(1),
+                    cursor: cursor.clone(),
+                    include_hidden: None,
+                },
+            })
+            .await?;
 
         assert_eq!(page_items.len(), 1);
         items.extend(page_items);
@@ -305,9 +310,11 @@ async fn list_models_pagination_works() -> Result<()> {
 async fn list_models_rejects_invalid_cursor() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path())?;
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
 
     let request_id = mcp
         .send_list_models_request(ModelListParams {

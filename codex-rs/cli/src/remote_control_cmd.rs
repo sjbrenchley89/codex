@@ -13,6 +13,7 @@ use codex_app_server_daemon::RemoteControlReadyOutput as AppServerRemoteControlR
 use codex_app_server_daemon::RemoteControlReadyStatus as AppServerRemoteControlReadyStatus;
 use codex_app_server_daemon::RemoteControlStartOutput as AppServerRemoteControlStartOutput;
 use codex_app_server_protocol::RemoteControlConnectionStatus;
+use codex_app_server_protocol::RemoteControlPairingStartResponse;
 use codex_arg0::Arg0DispatchPaths;
 use codex_config::LoaderOverrides;
 use codex_protocol::protocol::SessionSource;
@@ -43,6 +44,7 @@ impl RemoteControlCommand {
             None => "remote-control",
             Some(RemoteControlSubcommand::Start) => "remote-control start",
             Some(RemoteControlSubcommand::Stop) => "remote-control stop",
+            Some(RemoteControlSubcommand::Pair) => "remote-control pair",
         }
     }
 }
@@ -54,12 +56,16 @@ enum RemoteControlSubcommand {
 
     /// Stop the app-server daemon.
     Stop,
+
+    /// Create and print a short-lived manual pairing code.
+    Pair,
 }
 
 pub(crate) async fn run(
     command: RemoteControlCommand,
     arg0_paths: Arg0DispatchPaths,
     root_config_overrides: CliConfigOverrides,
+    psp: bool,
 ) -> anyhow::Result<()> {
     match command.subcommand {
         None => {
@@ -67,7 +73,8 @@ pub(crate) async fn run(
                 command.json,
                 "Starting app-server with remote control enabled...",
             )?;
-            run_foreground_remote_control(command.json, arg0_paths, root_config_overrides).await?;
+            run_foreground_remote_control(command.json, arg0_paths, root_config_overrides, psp)
+                .await?;
         }
         Some(RemoteControlSubcommand::Start) => {
             print_remote_control_progress(
@@ -81,6 +88,10 @@ pub(crate) async fn run(
             print_remote_control_progress(command.json, "Stopping remote control...")?;
             let output = codex_app_server_daemon::run(AppServerLifecycleCommand::Stop).await?;
             print_remote_control_stop_output(&output, command.json)?;
+        }
+        Some(RemoteControlSubcommand::Pair) => {
+            let output = codex_app_server_daemon::start_remote_control_pairing().await?;
+            print_remote_control_pairing_output(&output, command.json)?;
         }
     }
     Ok(())
@@ -102,6 +113,7 @@ async fn run_foreground_remote_control(
     json: bool,
     arg0_paths: Arg0DispatchPaths,
     root_config_overrides: CliConfigOverrides,
+    psp: bool,
 ) -> anyhow::Result<()> {
     let socket_dir = tempfile::Builder::new()
         .prefix("codex-rc-")
@@ -115,8 +127,9 @@ async fn run_foreground_remote_control(
         socket_path: socket_path.clone(),
     };
     let runtime_options = AppServerRuntimeOptions {
-        remote_control_enabled: true,
+        remote_control_startup_mode: codex_app_server::RemoteControlStartupMode::EnabledEphemeral,
         install_shutdown_signal_handler: false,
+        psp,
         ..Default::default()
     };
     let (stop_rx, stop_signal_task) = foreground_stop_signal();
@@ -451,6 +464,29 @@ fn print_remote_control_stop_output(
     Ok(())
 }
 
+fn print_remote_control_pairing_output(
+    output: &RemoteControlPairingStartResponse,
+    json: bool,
+) -> anyhow::Result<()> {
+    println!("{}", format_remote_control_pairing_output(output, json)?);
+    Ok(())
+}
+
+fn format_remote_control_pairing_output(
+    output: &RemoteControlPairingStartResponse,
+    json: bool,
+) -> anyhow::Result<String> {
+    if json {
+        return Ok(serde_json::to_string(output)?);
+    }
+
+    let manual_pairing_code = output
+        .manual_pairing_code
+        .as_deref()
+        .context("remote-control pairing response did not include a manual pairing code")?;
+    Ok(format!("Pairing code: {manual_pairing_code}"))
+}
+
 fn remote_control_stop_human_message(output: &AppServerLifecycleOutput) -> String {
     match output.status {
         AppServerLifecycleStatus::Stopped => "Remote control stopped.".to_string(),
@@ -506,6 +542,15 @@ mod tests {
                 environment_id: Some("env_test".to_string()),
                 timed_out: status == RemoteControlConnectionStatus::Connecting,
             },
+        }
+    }
+
+    fn pairing_response(manual_pairing_code: Option<&str>) -> RemoteControlPairingStartResponse {
+        RemoteControlPairingStartResponse {
+            pairing_code: "pairing-code".to_string(),
+            manual_pairing_code: manual_pairing_code.map(str::to_string),
+            environment_id: "env_test".to_string(),
+            expires_at: 1_700_000_000,
         }
     }
 
@@ -626,6 +671,49 @@ mod tests {
             .expect_err("errored daemon status should fail")
             .to_string(),
             "Remote control is enabled on owen-mbp but the connection is errored."
+        );
+    }
+
+    #[test]
+    fn remote_control_pairing_human_output_labels_the_manual_code() {
+        assert_eq!(
+            format_remote_control_pairing_output(
+                &pairing_response(Some("ABCD-EFGH")),
+                /*json*/ false,
+            )
+            .expect("manual pairing output"),
+            "Pairing code: ABCD-EFGH"
+        );
+    }
+
+    #[test]
+    fn remote_control_pairing_json_output_preserves_pairing_artifacts() {
+        let output = format_remote_control_pairing_output(
+            &pairing_response(Some("ABCD-EFGH")),
+            /*json*/ true,
+        )
+        .expect("pairing JSON output");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&output).expect("valid JSON"),
+            json!({
+                "pairingCode": "pairing-code",
+                "manualPairingCode": "ABCD-EFGH",
+                "environmentId": "env_test",
+                "expiresAt": 1_700_000_000,
+            })
+        );
+    }
+
+    #[test]
+    fn remote_control_pairing_human_output_requires_manual_code() {
+        assert_eq!(
+            format_remote_control_pairing_output(
+                &pairing_response(/*manual_pairing_code*/ None),
+                /*json*/ false,
+            )
+            .expect_err("missing manual pairing code should fail")
+            .to_string(),
+            "remote-control pairing response did not include a manual pairing code"
         );
     }
 

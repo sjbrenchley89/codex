@@ -2,26 +2,29 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 use codex_protocol::items::TurnItem;
+use codex_protocol::protocol::Event;
+use codex_protocol::protocol::EventMsg;
 use codex_tools::ConversationHistory;
 use codex_tools::ExtensionTurnItem;
-use codex_tools::ImageGenerationCompletionFuture;
+use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ToolCall as ExtensionToolCall;
+use codex_tools::ToolEnvironment;
 use codex_tools::ToolName;
+use codex_tools::ToolSearchInfo;
 use codex_tools::ToolSpec;
 use codex_tools::TurnItemEmissionFuture;
 use codex_tools::TurnItemEmitter;
+use codex_utils_string::to_ascii_json_string;
 
-use crate::context::ContextualUserFragment;
-use crate::context::ImageGenerationInstructions;
-use crate::function_tool::FunctionCallError;
+use crate::sandboxing::SandboxPermissions;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
-use crate::stream_events_utils::persist_image_generation_item;
 use crate::tools::context::ToolInvocation;
-use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
+use crate::tools::handlers::apply_granted_turn_permissions;
 use crate::tools::registry::CoreToolRuntime;
 use crate::tools::registry::ToolExecutor;
+use crate::turn_metadata::McpTurnMetadataContext;
 
 pub(crate) struct ExtensionToolAdapter(Arc<dyn codex_tools::ToolExecutor<ExtensionToolCall>>);
 
@@ -31,7 +34,6 @@ impl ExtensionToolAdapter {
     }
 }
 
-#[async_trait::async_trait]
 impl ToolExecutor<ToolInvocation> for ExtensionToolAdapter {
     fn tool_name(&self) -> ToolName {
         self.0.tool_name()
@@ -49,17 +51,34 @@ impl ToolExecutor<ToolInvocation> for ExtensionToolAdapter {
         self.0.supports_parallel_tool_calls()
     }
 
-    async fn handle(
-        &self,
-        invocation: ToolInvocation,
-    ) -> Result<Box<dyn ToolOutput>, FunctionCallError> {
-        self.0.handle(to_extension_call(&invocation).await).await
+    fn search_info(&self) -> Option<ToolSearchInfo> {
+        self.0.search_info()
+    }
+
+    fn handle(&self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'_> {
+        Box::pin(async move { self.0.handle(to_extension_call(&invocation).await).await })
     }
 }
 
 impl CoreToolRuntime for ExtensionToolAdapter {
     fn matches_kind(&self, payload: &ToolPayload) -> bool {
-        matches!(payload, ToolPayload::Function { .. })
+        match payload {
+            ToolPayload::Function { .. } => true,
+            ToolPayload::Custom { .. } => match self.0.spec() {
+                ToolSpec::Freeform(_) => true,
+                ToolSpec::Namespace(namespace) => namespace.tools.iter().any(|tool| {
+                    matches!(
+                        tool,
+                        ResponsesApiNamespaceTool::Custom(tool)
+                            if tool.name == self.0.tool_name().name
+                    )
+                }),
+                ToolSpec::Function(_)
+                | ToolSpec::ToolSearch { .. }
+                | ToolSpec::WebSearch { .. } => false,
+            },
+            ToolPayload::ToolSearch { .. } => false,
+        }
     }
 }
 
@@ -68,9 +87,14 @@ struct CoreTurnItemEmitter {
     turn: Weak<TurnContext>,
 }
 
-fn extension_turn_item(item: ExtensionTurnItem) -> TurnItem {
-    match item {
-        ExtensionTurnItem::WebSearch(item) => TurnItem::WebSearch(item),
+async fn emit_legacy_events(session: &Session, turn: &TurnContext, legacy_events: Vec<EventMsg>) {
+    for msg in legacy_events {
+        session
+            .send_event_raw(Event {
+                id: turn.sub_id.clone(),
+                msg,
+            })
+            .await;
     }
 }
 
@@ -80,8 +104,13 @@ impl TurnItemEmitter for CoreTurnItemEmitter {
             let (Some(session), Some(turn)) = (self.session.upgrade(), self.turn.upgrade()) else {
                 return;
             };
-            let item = extension_turn_item(item);
+            let ExtensionTurnItem {
+                item,
+                legacy_events,
+            } = item;
+            let item = TurnItem::Extension(item);
             session.emit_turn_item_started(turn.as_ref(), &item).await;
+            emit_legacy_events(session.as_ref(), turn.as_ref(), legacy_events).await;
         })
     }
 
@@ -90,52 +119,13 @@ impl TurnItemEmitter for CoreTurnItemEmitter {
             let (Some(session), Some(turn)) = (self.session.upgrade(), self.turn.upgrade()) else {
                 return;
             };
-            let item = extension_turn_item(item);
+            let ExtensionTurnItem {
+                item,
+                legacy_events,
+            } = item;
+            let item = TurnItem::Extension(item);
             session.emit_turn_item_completed(turn.as_ref(), item).await;
-        })
-    }
-
-    fn image_generation_completed<'a>(
-        &'a self,
-        call_id: String,
-        prompt: String,
-        result: String,
-    ) -> ImageGenerationCompletionFuture<'a> {
-        Box::pin(async move {
-            let (Some(session), Some(turn)) = (self.session.upgrade(), self.turn.upgrade()) else {
-                return None;
-            };
-            let mut item = codex_protocol::items::ImageGenerationItem {
-                id: call_id,
-                status: "completed".to_string(),
-                revised_prompt: Some(prompt),
-                result,
-                saved_path: None,
-            };
-            let output_hint =
-                persist_image_generation_item(session.as_ref(), turn.as_ref(), &mut item)
-                    .await
-                    .map(|saved_path| {
-                        let output_dir = saved_path
-                            .parent()
-                            .unwrap_or_else(|| turn.config.codex_home.clone());
-                        ImageGenerationInstructions::new(output_dir.display(), saved_path.display())
-                            .body()
-                    });
-            let started_item = codex_protocol::items::ImageGenerationItem {
-                id: item.id.clone(),
-                status: "in_progress".to_string(),
-                revised_prompt: None,
-                result: String::new(),
-                saved_path: None,
-            };
-            session
-                .emit_turn_item_started(turn.as_ref(), &TurnItem::ImageGeneration(started_item))
-                .await;
-            session
-                .emit_turn_item_completed(turn.as_ref(), TurnItem::ImageGeneration(item))
-                .await;
-            output_hint
+            emit_legacy_events(session.as_ref(), turn.as_ref(), legacy_events).await;
         })
     }
 }
@@ -143,17 +133,53 @@ impl TurnItemEmitter for CoreTurnItemEmitter {
 async fn to_extension_call(invocation: &ToolInvocation) -> ExtensionToolCall {
     let conversation_history =
         ConversationHistory::new(invocation.session.clone_history().await.into_raw_items());
+    let codex_turn_metadata = invocation
+        .turn
+        .turn_metadata_state
+        .current_meta_value_for_mcp_request(McpTurnMetadataContext {
+            model: invocation.turn.model_info.slug.as_str(),
+            reasoning_effort: invocation.turn.effective_reasoning_effort(),
+        })
+        .and_then(|metadata| to_ascii_json_string(&metadata).ok());
+    let mut environments = Vec::new();
+    for environment in invocation.step_context.environments.turn_environments() {
+        // TODO(anp): Migrate extension ToolEnvironment and granted-permission lookup to PathUri
+        // so extensions can receive foreign environment cwd values.
+        let Ok(native_cwd) = environment.cwd().to_abs_path() else {
+            continue;
+        };
+        let additional_permissions = apply_granted_turn_permissions(
+            invocation.session.as_ref(),
+            &environment.environment_id,
+            native_cwd.as_path(),
+            SandboxPermissions::UseDefault,
+            /*additional_permissions*/ None,
+        )
+        .await
+        .additional_permissions;
+        let file_system_sandbox_context = invocation
+            .turn
+            .file_system_sandbox_context(additional_permissions, environment);
+        environments.push(ToolEnvironment {
+            environment_id: environment.environment_id.clone(),
+            cwd: native_cwd,
+            file_system: environment.environment.get_filesystem(),
+            file_system_sandbox_context,
+        });
+    }
     ExtensionToolCall {
         turn_id: invocation.turn.sub_id.clone(),
         call_id: invocation.call_id.clone(),
         tool_name: invocation.tool_name.clone(),
         model: invocation.turn.model_info.slug.clone(),
-        truncation_policy: invocation.turn.truncation_policy,
+        codex_turn_metadata,
+        truncation_policy: invocation.turn.model_info.truncation_policy.into(),
         conversation_history,
         turn_item_emitter: Arc::new(CoreTurnItemEmitter {
             session: Arc::downgrade(&invocation.session),
             turn: Arc::downgrade(&invocation.turn),
         }),
+        environments,
         payload: invocation.payload.clone(),
     }
 }
@@ -162,18 +188,27 @@ async fn to_extension_call(invocation: &ToolInvocation) -> ExtensionToolCall {
 mod tests {
     use std::sync::Arc;
 
+    use codex_extension_items::ExtensionItem;
+    use codex_extension_items::image_generation::ImageGenerationItem;
+    use codex_extension_items::web_search::WebSearchItem;
     use codex_protocol::items::TurnItem;
-    use codex_protocol::items::WebSearchItem;
     use codex_protocol::models::ContentItem;
     use codex_protocol::models::ResponseItem;
-    use codex_protocol::models::WebSearchAction;
     use codex_protocol::protocol::EventMsg;
+    use codex_protocol::protocol::ImageGenerationBeginEvent;
+    use codex_protocol::protocol::ImageGenerationEndEvent;
     use codex_tools::ExtensionTurnItem;
+    use codex_utils_absolute_path::test_support::PathExt;
+    use codex_utils_absolute_path::test_support::test_path_buf;
+    use core_test_support::responses::strip_response_item_id;
+    use core_test_support::responses::strip_response_item_ids;
     use pretty_assertions::assert_eq;
     use serde_json::json;
     use tokio::sync::Mutex;
 
+    use super::CoreTurnItemEmitter;
     use super::ExtensionToolAdapter;
+    use crate::session::step_context::StepContext;
     use crate::tools::context::ToolCallSource;
     use crate::tools::context::ToolInvocation;
     use crate::tools::context::ToolPayload;
@@ -185,7 +220,6 @@ mod tests {
 
     struct StubExtensionExecutor;
 
-    #[async_trait::async_trait]
     impl codex_extension_api::ToolExecutor<codex_tools::ToolCall> for StubExtensionExecutor {
         fn tool_name(&self) -> codex_tools::ToolName {
             codex_tools::ToolName::plain("extension_echo")
@@ -210,13 +244,13 @@ mod tests {
             })
         }
 
-        async fn handle(
-            &self,
-            _call: codex_tools::ToolCall,
-        ) -> Result<Box<dyn codex_tools::ToolOutput>, codex_tools::FunctionCallError> {
-            Ok(Box::new(codex_tools::JsonToolOutput::new(
-                json!({ "ok": true }),
-            )))
+        fn handle(&self, _call: codex_tools::ToolCall) -> codex_tools::ToolExecutorFuture<'_> {
+            Box::pin(async {
+                Ok(
+                    Box::new(codex_tools::JsonToolOutput::new(json!({ "ok": true })))
+                        as Box<dyn codex_tools::ToolOutput>,
+                )
+            })
         }
     }
 
@@ -224,7 +258,6 @@ mod tests {
         captured_call: Arc<Mutex<Option<codex_tools::ToolCall>>>,
     }
 
-    #[async_trait::async_trait]
     impl codex_extension_api::ToolExecutor<codex_tools::ToolCall> for CapturingExtensionExecutor {
         fn tool_name(&self) -> codex_tools::ToolName {
             codex_tools::ToolName::plain("extension_echo")
@@ -241,34 +274,56 @@ mod tests {
             })
         }
 
-        async fn handle(
+        fn handle(&self, call: codex_tools::ToolCall) -> codex_tools::ToolExecutorFuture<'_> {
+            Box::pin(self.handle_call(call))
+        }
+    }
+
+    impl CapturingExtensionExecutor {
+        async fn handle_call(
             &self,
             call: codex_tools::ToolCall,
         ) -> Result<Box<dyn codex_tools::ToolOutput>, codex_tools::FunctionCallError> {
-            let item = ExtensionTurnItem::WebSearch(WebSearchItem {
-                id: call.call_id.clone(),
-                query: "rust trait object".to_string(),
-                action: WebSearchAction::Search {
-                    query: Some("rust trait object".to_string()),
-                    queries: None,
-                },
-            });
-            call.turn_item_emitter.emit_started(item.clone()).await;
-            call.turn_item_emitter.emit_completed(item).await;
+            call.turn_item_emitter
+                .emit_started(ExtensionTurnItem {
+                    item: ExtensionItem::WebSearch(WebSearchItem {
+                        id: call.call_id.clone(),
+                        query: String::new(),
+                        action: None,
+                        results: None,
+                    }),
+                    legacy_events: Vec::new(),
+                })
+                .await;
             *self.captured_call.lock().await = Some(call);
-            Ok(Box::new(codex_tools::JsonToolOutput::new(
-                json!({ "ok": true }),
-            )))
+            Ok(
+                Box::new(codex_tools::JsonToolOutput::new(json!({ "ok": true })))
+                    as Box<dyn codex_tools::ToolOutput>,
+            )
         }
+    }
+
+    #[test]
+    fn function_extensions_reject_custom_payloads() {
+        let handler = ExtensionToolAdapter::new(Arc::new(StubExtensionExecutor));
+
+        assert!(handler.matches_kind(&ToolPayload::Function {
+            arguments: "{}".to_string(),
+        }));
+        assert!(!handler.matches_kind(&ToolPayload::Custom {
+            input: "raw input".to_string(),
+        }));
     }
 
     #[tokio::test]
     async fn exposes_generic_hook_payloads() {
         let handler = ExtensionToolAdapter::new(Arc::new(StubExtensionExecutor));
         let (session, turn) = crate::session::tests::make_session_and_context().await;
+        let turn = Arc::new(turn);
         let invocation = ToolInvocation {
             session: session.into(),
-            turn: turn.into(),
+            step_context: StepContext::for_test(Arc::clone(&turn)),
+            turn,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             tracker: Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new())),
             call_id: "call-extension".to_string(),
@@ -309,7 +364,12 @@ mod tests {
         let weak_turn = Arc::downgrade(&turn);
         let turn_id = turn.sub_id.clone();
         let model = turn.model_info.slug.clone();
-        let truncation_policy = turn.truncation_policy;
+        let truncation_policy = turn.model_info.truncation_policy.into();
+        let expected_sandbox_cwds = turn
+            .environments
+            .turn_environments()
+            .map(|environment| Some(environment.cwd().clone()))
+            .collect::<Vec<_>>();
         let history_item = ResponseItem::Message {
             id: None,
             role: "user".to_string(),
@@ -317,17 +377,25 @@ mod tests {
                 text: "extension history".to_string(),
             }],
             phase: None,
+            internal_chat_message_metadata_passthrough: None,
         };
         session
             .record_conversation_items(&turn, std::slice::from_ref(&history_item))
             .await;
+        let mut expected_history_item = history_item.clone();
+        expected_history_item.set_turn_id_if_missing(&turn_id);
         let raw_history_event = rx.recv().await.expect("history raw response item event");
         let EventMsg::RawResponseItem(raw_history_item) = raw_history_event.msg else {
             panic!("expected raw response item event");
         };
-        assert_eq!(raw_history_item.item, history_item);
+        assert_eq!(
+            strip_response_item_id(raw_history_item.item),
+            expected_history_item
+        );
+        let step_context = StepContext::for_test(Arc::clone(&turn));
         let invocation = ToolInvocation {
             session,
+            step_context,
             turn,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             tracker: Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new())),
@@ -355,8 +423,16 @@ mod tests {
         assert_eq!(captured_call.model, model);
         assert_eq!(captured_call.truncation_policy, truncation_policy);
         assert_eq!(
-            captured_call.conversation_history.items(),
-            std::slice::from_ref(&history_item)
+            captured_call
+                .environments
+                .iter()
+                .map(|environment| environment.file_system_sandbox_context.cwd.clone())
+                .collect::<Vec<_>>(),
+            expected_sandbox_cwds
+        );
+        assert_eq!(
+            strip_response_item_ids(captured_call.conversation_history.items()),
+            vec![expected_history_item]
         );
         match captured_call.payload {
             ToolPayload::Function { arguments } => {
@@ -369,116 +445,76 @@ mod tests {
         let EventMsg::ItemStarted(started) = started.msg else {
             panic!("expected item started event");
         };
-        let TurnItem::WebSearch(started_item) = started.item else {
-            panic!("expected web search item");
+        let TurnItem::Extension(ExtensionItem::WebSearch(started_item)) = started.item else {
+            panic!("expected extension web search item");
         };
-        let begin = rx.recv().await.expect("legacy web search begin event");
-        let EventMsg::WebSearchBegin(begin) = begin.msg else {
-            panic!("expected legacy web search begin event");
-        };
-        let completed = rx.recv().await.expect("item completed event");
-        let EventMsg::ItemCompleted(completed) = completed.msg else {
-            panic!("expected item completed event");
-        };
-        let TurnItem::WebSearch(completed_item) = completed.item else {
-            panic!("expected web search item");
-        };
-        let end = rx.recv().await.expect("legacy web search end event");
-        let EventMsg::WebSearchEnd(end) = end.msg else {
-            panic!("expected legacy web search end event");
-        };
-
-        let expected = WebSearchItem {
-            id: "call-extension".to_string(),
-            query: "rust trait object".to_string(),
-            action: WebSearchAction::Search {
-                query: Some("rust trait object".to_string()),
-                queries: None,
-            },
-        };
-        assert_eq!(started_item, expected);
-        assert_eq!(completed_item, expected);
-        assert_eq!(begin.call_id, expected.id);
-        assert_eq!(end.call_id, expected.id);
-        assert_eq!(end.query, expected.query);
-        assert_eq!(end.action, expected.action);
-    }
-
-    struct ImageGenerationExtensionExecutor {
-        output_hint: Arc<Mutex<Option<String>>>,
-    }
-
-    #[async_trait::async_trait]
-    impl codex_extension_api::ToolExecutor<codex_tools::ToolCall> for ImageGenerationExtensionExecutor {
-        fn tool_name(&self) -> codex_tools::ToolName {
-            codex_tools::ToolName::namespaced("image_gen", "imagegen")
-        }
-
-        fn spec(&self) -> codex_tools::ToolSpec {
-            codex_tools::ToolSpec::Function(codex_tools::ResponsesApiTool {
-                name: "imagegen".to_string(),
-                description: "Generates an image.".to_string(),
-                strict: false,
-                parameters: codex_tools::JsonSchema::default(),
-                output_schema: None,
-                defer_loading: None,
-            })
-        }
-
-        async fn handle(
-            &self,
-            call: codex_tools::ToolCall,
-        ) -> Result<Box<dyn codex_tools::ToolOutput>, codex_tools::FunctionCallError> {
-            let output_hint = call
-                .turn_item_emitter
-                .image_generation_completed(
-                    call.call_id,
-                    "A tiny blue square".to_string(),
-                    "cG5n".to_string(),
-                )
-                .await;
-            *self.output_hint.lock().await = output_hint;
-            Ok(Box::new(codex_tools::JsonToolOutput::new(
-                json!({ "ok": true }),
-            )))
-        }
+        assert_eq!(
+            started_item,
+            WebSearchItem {
+                id: "call-extension".to_string(),
+                query: String::new(),
+                action: None,
+                results: None,
+            }
+        );
     }
 
     #[tokio::test]
-    async fn image_generation_publication_is_finalized_by_core() {
-        let output_hint = Arc::new(Mutex::new(None));
-        let handler = ExtensionToolAdapter::new(Arc::new(ImageGenerationExtensionExecutor {
-            output_hint: Arc::clone(&output_hint),
-        }));
+    async fn image_generation_publication_preserves_extension_saved_path() {
         let (session, turn, rx) = crate::session::tests::make_session_and_context_with_rx().await;
-        let expected_path = crate::stream_events_utils::image_generation_artifact_path(
-            &turn.config.codex_home,
-            &session.conversation_id.to_string(),
-            "call-image",
-        );
-        let invocation = ToolInvocation {
-            session,
-            turn,
-            cancellation_token: tokio_util::sync::CancellationToken::new(),
-            tracker: Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new())),
-            call_id: "call-image".to_string(),
-            tool_name: codex_tools::ToolName::namespaced("image_gen", "imagegen"),
-            source: ToolCallSource::Direct,
-            payload: ToolPayload::Function {
-                arguments: "{}".to_string(),
-            },
+        let expected_path = test_path_buf("/tmp/extension-claimed.png").abs();
+        let emitter = CoreTurnItemEmitter {
+            session: Arc::downgrade(&session),
+            turn: Arc::downgrade(&turn),
         };
-
-        crate::tools::registry::ToolExecutor::handle(&handler, invocation)
-            .await
-            .expect("extension call should succeed");
+        let expected_started_item = ExtensionItem::ImageGeneration(ImageGenerationItem {
+            id: "call-image".to_string(),
+            status: "in_progress".to_string(),
+            revised_prompt: None,
+            result: String::new(),
+            transparent_background: None,
+            saved_path: None,
+        });
+        let expected_completed_item = ExtensionItem::ImageGeneration(ImageGenerationItem {
+            id: "call-image".to_string(),
+            status: "completed".to_string(),
+            revised_prompt: Some("A tiny blue square".to_string()),
+            result: "cG5n".to_string(),
+            transparent_background: Some(true),
+            saved_path: Some(expected_path.clone()),
+        });
+        codex_tools::TurnItemEmitter::emit_started(
+            &emitter,
+            ExtensionTurnItem {
+                item: expected_started_item.clone(),
+                legacy_events: vec![EventMsg::ImageGenerationBegin(ImageGenerationBeginEvent {
+                    call_id: "call-image".to_string(),
+                })],
+            },
+        )
+        .await;
+        codex_tools::TurnItemEmitter::emit_completed(
+            &emitter,
+            ExtensionTurnItem {
+                item: expected_completed_item.clone(),
+                legacy_events: vec![EventMsg::ImageGenerationEnd(ImageGenerationEndEvent {
+                    call_id: "call-image".to_string(),
+                    status: "completed".to_string(),
+                    revised_prompt: Some("A tiny blue square".to_string()),
+                    result: "cG5n".to_string(),
+                    transparent_background: Some(true),
+                    saved_path: Some(expected_path.clone()),
+                })],
+            },
+        )
+        .await;
 
         let started = rx.recv().await.expect("item started event");
         let EventMsg::ItemStarted(started) = started.msg else {
             panic!("expected item started event");
         };
-        let TurnItem::ImageGeneration(started_item) = started.item else {
-            panic!("expected image generation item");
+        let TurnItem::Extension(started_item) = started.item else {
+            panic!("expected extension item");
         };
         let begin = rx.recv().await.expect("legacy image start event");
         assert!(matches!(begin.msg, EventMsg::ImageGenerationBegin(_)));
@@ -486,47 +522,13 @@ mod tests {
         let EventMsg::ItemCompleted(completed) = completed.msg else {
             panic!("expected item completed event");
         };
-        let TurnItem::ImageGeneration(completed_item) = completed.item else {
-            panic!("expected image generation item");
+        let TurnItem::Extension(completed_item) = completed.item else {
+            panic!("expected extension item");
         };
         let end = rx.recv().await.expect("legacy image end event");
         assert!(matches!(end.msg, EventMsg::ImageGenerationEnd(_)));
 
-        assert_eq!(
-            started_item,
-            codex_protocol::items::ImageGenerationItem {
-                id: "call-image".to_string(),
-                status: "in_progress".to_string(),
-                revised_prompt: None,
-                result: String::new(),
-                saved_path: None,
-            }
-        );
-        assert_eq!(
-            completed_item,
-            codex_protocol::items::ImageGenerationItem {
-                id: "call-image".to_string(),
-                status: "completed".to_string(),
-                revised_prompt: Some("A tiny blue square".to_string()),
-                result: "cG5n".to_string(),
-                saved_path: Some(expected_path.clone()),
-            }
-        );
-        assert_eq!(
-            std::fs::read(&expected_path).expect("generated artifact should be saved"),
-            b"png"
-        );
-        assert_eq!(
-            *output_hint.lock().await,
-            Some(format!(
-                "Generated images are saved to {} as {} by default.\n\
-                 If you need to use a generated image at another path, copy it and leave the original in place unless the user explicitly asks you to delete it.",
-                expected_path
-                    .parent()
-                    .expect("generated image path should have a parent")
-                    .display(),
-                expected_path.display(),
-            ))
-        );
+        assert_eq!(started_item, expected_started_item);
+        assert_eq!(completed_item, expected_completed_item);
     }
 }

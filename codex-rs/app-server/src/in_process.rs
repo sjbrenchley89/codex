@@ -77,9 +77,10 @@ use codex_app_server_protocol::Result;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_arg0::Arg0DispatchPaths;
-use codex_config::CloudRequirementsLoader;
+use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
 use codex_config::ThreadConfigLoader;
+use codex_core::check_execpolicy_for_warnings;
 use codex_core::config::Config;
 use codex_core::resolve_installation_id;
 use codex_exec_server::EnvironmentManager;
@@ -96,6 +97,8 @@ use tracing::warn;
 
 const IN_PROCESS_CONNECTION_ID: ConnectionId = ConnectionId(0);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+// Covers both bounded runtime drains plus the analytics client's 25-second best-effort flush.
+const SHUTDOWN_ACK_TIMEOUT: Duration = Duration::from_secs(35);
 /// Default bounded channel capacity for in-process runtime queues.
 pub const DEFAULT_IN_PROCESS_CHANNEL_CAPACITY: usize = CHANNEL_CAPACITY;
 
@@ -104,7 +107,9 @@ type PendingClientRequestResponse = std::result::Result<Result, JSONRPCErrorErro
 fn server_notification_requires_delivery(notification: &ServerNotification) -> bool {
     matches!(
         notification,
-        ServerNotification::TurnCompleted(_) | ServerNotification::ThreadSettingsUpdated(_)
+        ServerNotification::TurnCompleted(_)
+            | ServerNotification::ThreadSettingsUpdated(_)
+            | ServerNotification::ExternalAgentConfigImportCompleted(_)
     )
 }
 
@@ -124,8 +129,8 @@ pub struct InProcessStartArgs {
     pub loader_overrides: LoaderOverrides,
     /// Whether config API paths should reject unknown config fields.
     pub strict_config: bool,
-    /// Preloaded cloud requirements provider.
-    pub cloud_requirements: CloudRequirementsLoader,
+    /// Preloaded cloud config bundle provider.
+    pub cloud_config_bundle: CloudConfigBundleLoader,
     /// Loader used to fetch typed thread config sources before a thread starts.
     pub thread_config_loader: Arc<dyn ThreadConfigLoader>,
     /// Feedback sink used by app-server/core telemetry and logs.
@@ -155,9 +160,9 @@ pub struct InProcessStartArgs {
 #[derive(Debug, Clone)]
 pub enum InProcessServerEvent {
     /// Server request that requires client response/rejection.
-    ServerRequest(ServerRequest),
+    ServerRequest(Box<ServerRequest>),
     /// App-server notification directed to the embedded client.
-    ServerNotification(ServerNotification),
+    ServerNotification(Box<ServerNotification>),
     /// Indicates one or more events were dropped due to backpressure.
     Lagged { skipped: usize },
 }
@@ -327,7 +332,7 @@ impl InProcessClientHandle {
             .await
             .is_ok()
         {
-            let _ = timeout(SHUTDOWN_TIMEOUT, done_rx).await;
+            let _ = timeout(SHUTDOWN_ACK_TIMEOUT, done_rx).await;
         }
 
         if let Err(_elapsed) = timeout(SHUTDOWN_TIMEOUT, &mut runtime_handle).await {
@@ -347,7 +352,16 @@ impl InProcessClientHandle {
 /// This function sends `initialize` followed by `initialized` before returning
 /// the handle, so callers receive a ready-to-use runtime. If initialize fails,
 /// the runtime is shut down and an `InvalidData` error is returned.
-pub async fn start(args: InProcessStartArgs) -> IoResult<InProcessClientHandle> {
+pub async fn start(mut args: InProcessStartArgs) -> IoResult<InProcessClientHandle> {
+    if let Ok(Some(err)) = check_execpolicy_for_warnings(&args.config.config_layer_stack).await {
+        let (path, range) = crate::exec_policy_warning_location(&err);
+        args.config_warnings.push(ConfigWarningNotification {
+            summary: "Error parsing rules; custom rules not applied.".to_string(),
+            details: Some(err.to_string()),
+            path,
+            range,
+        });
+    }
     let initialize = args.initialize.clone();
     let client = start_uninitialized(args).await?;
 
@@ -369,19 +383,40 @@ pub async fn start(args: InProcessStartArgs) -> IoResult<InProcessClientHandle> 
     Ok(client)
 }
 
+async fn run_outbound_router(
+    mut outgoing_rx: mpsc::Receiver<OutgoingEnvelope>,
+    mut outbound_connections: HashMap<ConnectionId, OutboundConnectionState>,
+    mut shutdown_rx: oneshot::Receiver<()>,
+) {
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut shutdown_rx => break,
+            envelope = outgoing_rx.recv() => {
+                let Some(envelope) = envelope else {
+                    break;
+                };
+                route_outgoing_envelope(&mut outbound_connections, envelope).await;
+            }
+        }
+    }
+}
+
 async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClientHandle> {
+    args.config.auth_config().validate()?;
     let channel_capacity = args.channel_capacity.max(1);
     let installation_id = resolve_installation_id(&args.config.codex_home).await?;
     let (client_tx, mut client_rx) = mpsc::channel::<InProcessClientMessage>(channel_capacity);
     let (event_tx, event_rx) = mpsc::channel::<InProcessServerEvent>(channel_capacity);
 
     let runtime_handle = tokio::spawn(async move {
-        let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<OutgoingEnvelope>(channel_capacity);
+        let (outgoing_tx, outgoing_rx) = mpsc::channel::<OutgoingEnvelope>(channel_capacity);
         let auth_manager =
             AuthManager::shared_from_config(args.config.as_ref(), args.enable_codex_api_key_env)
                 .await;
         let analytics_events_client =
             analytics_events_client_from_config(Arc::clone(&auth_manager), args.config.as_ref());
+        let analytics_events_flush_client = analytics_events_client.clone();
         let outgoing_message_sender = Arc::new(OutgoingMessageSender::new(
             outgoing_tx,
             analytics_events_client.clone(),
@@ -403,22 +438,24 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
                 /*disconnect_sender*/ None,
             ),
         );
-        let mut outbound_handle = tokio::spawn(async move {
-            while let Some(envelope) = outgoing_rx.recv().await {
-                route_outgoing_envelope(&mut outbound_connections, envelope).await;
-            }
-        });
+        let (outbound_shutdown_tx, outbound_shutdown_rx) = oneshot::channel();
+        let mut outbound_handle = tokio::spawn(run_outbound_router(
+            outgoing_rx,
+            outbound_connections,
+            outbound_shutdown_rx,
+        ));
 
         let processor_outgoing = Arc::clone(&outgoing_message_sender);
-        let config_manager = ConfigManager::new(
+        let mut config_manager = ConfigManager::new(
             args.config.codex_home.to_path_buf(),
             args.cli_overrides,
             args.loader_overrides,
             args.strict_config,
-            args.cloud_requirements,
+            args.cloud_config_bundle,
             args.arg0_paths.clone(),
             args.thread_config_loader,
         );
+        config_manager.psp = args.config.psp;
         let (processor_tx, mut processor_rx) = mpsc::channel::<ProcessorCommand>(channel_capacity);
         let mut processor_handle = tokio::spawn(async move {
             let processor = Arc::new(MessageProcessor::new(MessageProcessorArgs {
@@ -435,6 +472,7 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
                 session_source: args.session_source,
                 auth_manager,
                 installation_id,
+                code_mode_session_provider: None,
                 rpc_transport: AppServerRpcTransport::InProcess,
                 remote_control_handle: None,
                 plugin_startup_tasks: crate::PluginStartupTasks::Start,
@@ -605,7 +643,10 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
                     match outgoing_message {
                         OutgoingMessage::Response(response) => {
                             if let Some(response_tx) = pending_request_responses.remove(&response.id) {
-                                let _ = response_tx.send(Ok(response.result));
+                                let result = serde_json::to_value(response.result).map_err(|err| {
+                                    internal_error(format!("failed to serialize response: {err}"))
+                                });
+                                let _ = response_tx.send(result);
                             } else {
                                 warn!(
                                     request_id = ?response.id,
@@ -627,7 +668,7 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
                             // Send directly to avoid cloning; on failure the
                             // original value is returned inside the error.
                             if let Err(send_error) = event_tx
-                                .try_send(InProcessServerEvent::ServerRequest(request))
+                                .try_send(InProcessServerEvent::ServerRequest(Box::new(request)))
                             {
                                 let (error, inner) = match send_error {
                                     mpsc::error::TrySendError::Full(inner) => (
@@ -655,17 +696,22 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
                                     .await;
                             }
                         }
-                        OutgoingMessage::AppServerNotification(notification) => {
+                        OutgoingMessage::AppServerNotification(envelope) => {
+                            let notification = envelope.notification;
                             if server_notification_requires_delivery(&notification) {
                                 if event_tx
-                                    .send(InProcessServerEvent::ServerNotification(notification))
+                                    .send(InProcessServerEvent::ServerNotification(Box::new(
+                                        notification,
+                                    )))
                                     .await
                                     .is_err()
                                 {
                                     break;
                                 }
                             } else if let Err(send_error) =
-                                event_tx.try_send(InProcessServerEvent::ServerNotification(notification))
+                                event_tx.try_send(InProcessServerEvent::ServerNotification(
+                                    Box::new(notification),
+                                ))
                             {
                                 match send_error {
                                     mpsc::error::TrySendError::Full(_) => {
@@ -692,8 +738,8 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
                 "in-process app-server runtime is shutting down",
             )))
             .await;
-        // Drop the runtime's last sender before awaiting the router task so
-        // `outgoing_rx.recv()` can observe channel closure and exit cleanly.
+        // Detached processor work can retain outgoing senders, so channel
+        // closure alone cannot be used to shut down the outbound router.
         drop(outgoing_message_sender);
         for (_, response_tx) in pending_request_responses {
             let _ = response_tx.send(Err(internal_error(
@@ -705,10 +751,13 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
             processor_handle.abort();
             let _ = processor_handle.await;
         }
+        let _ = outbound_shutdown_tx.send(());
         if let Err(_elapsed) = timeout(SHUTDOWN_TIMEOUT, &mut outbound_handle).await {
             outbound_handle.abort();
             let _ = outbound_handle.await;
         }
+
+        analytics_events_flush_client.flush().await;
 
         if let Some(done_tx) = shutdown_ack {
             let _ = done_tx.send(());
@@ -729,6 +778,7 @@ mod tests {
     use super::*;
     use codex_app_server_protocol::ClientInfo;
     use codex_app_server_protocol::ConfigRequirementsReadResponse;
+    use codex_app_server_protocol::ExternalAgentConfigImportCompletedNotification;
     use codex_app_server_protocol::SessionSource as ApiSessionSource;
     use codex_app_server_protocol::ThreadStartParams;
     use codex_app_server_protocol::ThreadStartResponse;
@@ -772,7 +822,7 @@ mod tests {
             cli_overrides: Vec::new(),
             loader_overrides: LoaderOverrides::default(),
             strict_config: false,
-            cloud_requirements: CloudRequirementsLoader::default(),
+            cloud_config_bundle: CloudConfigBundleLoader::default(),
             thread_config_loader: Arc::new(codex_config::NoopThreadConfigLoader),
             feedback: CodexFeedback::new(),
             log_db: None,
@@ -876,6 +926,59 @@ mod tests {
             .expect("in-process runtime should shutdown cleanly");
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn in_process_outbound_router_shutdown_does_not_wait_for_retained_sender() {
+        let (outgoing_tx, outgoing_rx) = mpsc::channel(/*buffer*/ 1);
+        let retained_outgoing_tx = outgoing_tx.clone();
+        drop(outgoing_tx);
+
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let mut outbound_handle = tokio::spawn(run_outbound_router(
+            outgoing_rx,
+            HashMap::new(),
+            shutdown_rx,
+        ));
+
+        assert!(!retained_outgoing_tx.is_closed());
+        shutdown_tx
+            .send(())
+            .expect("outbound router should accept explicit shutdown");
+        timeout(SHUTDOWN_TIMEOUT, &mut outbound_handle)
+            .await
+            .expect("outbound router should not wait for its retained sender")
+            .expect("outbound router should complete successfully");
+        assert!(retained_outgoing_tx.is_closed());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn in_process_shutdown_waits_for_analytics_flush_budget() {
+        let (client_tx, mut client_rx) = mpsc::channel(/*buffer*/ 1);
+        let (_event_tx, event_rx) = mpsc::channel(/*buffer*/ 1);
+        let completed = Arc::new(AtomicBool::new(false));
+        let runtime_completed = Arc::clone(&completed);
+        let runtime_handle = tokio::spawn(async move {
+            let done_tx = match client_rx.recv().await {
+                Some(InProcessClientMessage::Shutdown { done_tx }) => done_tx,
+                _ => panic!("expected in-process shutdown request"),
+            };
+            tokio::time::sleep(SHUTDOWN_TIMEOUT + SHUTDOWN_TIMEOUT + Duration::from_secs(24)).await;
+            runtime_completed.store(true, Ordering::Release);
+            let _ = done_tx.send(());
+        });
+        let client = InProcessClientHandle {
+            client: InProcessClientSender { client_tx },
+            event_rx,
+            runtime_handle,
+            _test_codex_home: None,
+        };
+
+        client
+            .shutdown()
+            .await
+            .expect("in-process runtime should shutdown cleanly");
+        assert!(completed.load(Ordering::Acquire));
+    }
+
     #[test]
     fn guaranteed_delivery_helpers_cover_terminal_server_notifications() {
         assert!(server_notification_requires_delivery(
@@ -892,6 +995,14 @@ mod tests {
                     duration_ms: None,
                 },
             })
+        ));
+        assert!(server_notification_requires_delivery(
+            &ServerNotification::ExternalAgentConfigImportCompleted(
+                ExternalAgentConfigImportCompletedNotification {
+                    import_id: "import".to_string(),
+                    item_type_results: Vec::new(),
+                },
+            )
         ));
     }
 }

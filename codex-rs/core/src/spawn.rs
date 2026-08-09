@@ -8,6 +8,7 @@ use tokio::process::Command;
 use tracing::trace;
 
 use codex_protocol::permissions::NetworkSandboxPolicy;
+use codex_protocol::shell_environment::is_non_inheritable_env_var;
 
 /// Experimental environment variable that will be set to some non-empty value
 /// if both of the following are true:
@@ -30,7 +31,7 @@ pub enum StdioPolicy {
     Inherit,
 }
 
-/// Spawns the appropriate child process for the ExecParams and SandboxPolicy,
+/// Spawns the appropriate child process for the exec params and sandbox settings,
 /// ensuring the args and environment variables used to create the `Command`
 /// (and `Child`) honor the configuration.
 ///
@@ -59,6 +60,8 @@ pub(crate) async fn spawn_child_async(request: SpawnChildRequest<'_>) -> std::io
         stdio_policy,
         mut env,
     } = request;
+
+    env.retain(|name, _| !is_non_inheritable_env_var(name));
 
     trace!(
         "spawn_child_async: {program:?} {args:?} {arg0:?} {cwd:?} {network_sandbox_policy:?} {stdio_policy:?} {env:?}"

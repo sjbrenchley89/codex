@@ -23,7 +23,7 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput;
 use codex_arg0::Arg0DispatchPaths;
-use codex_config::CloudRequirementsLoader;
+use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
 use codex_core::config::Config;
 use codex_core::config::ConfigBuilder;
@@ -240,7 +240,7 @@ async fn build_test_processor(
         Vec::new(),
         LoaderOverrides::default(),
         /*strict_config*/ false,
-        CloudRequirementsLoader::default(),
+        CloudConfigBundleLoader::default(),
         Arg0DispatchPaths::default(),
         Arc::new(codex_config::NoopThreadConfigLoader),
     );
@@ -264,6 +264,7 @@ async fn build_test_processor(
         session_source: SessionSource::VSCode,
         auth_manager,
         installation_id: "11111111-1111-4111-8111-111111111111".to_string(),
+        code_mode_session_provider: None,
         rpc_transport: AppServerRpcTransport::Stdio,
         remote_control_handle: None,
         plugin_startup_tasks: crate::PluginStartupTasks::Start,
@@ -275,7 +276,7 @@ fn run_current_thread_test_with_stack<F>(name: &str, future: F) -> Result<()>
 where
     F: Future<Output = Result<()>> + Send + 'static,
 {
-    const TEST_STACK_SIZE_BYTES: usize = 4 * 1024 * 1024;
+    const TEST_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
 
     let handle = std::thread::Builder::new()
         .name(name.to_string())
@@ -449,8 +450,10 @@ async fn read_response<T: serde::de::DeserializeOwned>(
         if response.id != RequestId::Integer(request_id) {
             continue;
         }
-        return serde_json::from_value(response.result)
-            .expect("response payload should deserialize");
+        return serde_json::from_value(
+            serde_json::to_value(response.result).expect("response payload should serialize"),
+        )
+        .expect("response payload should deserialize");
     }
 }
 
@@ -477,7 +480,7 @@ async fn read_thread_started_notification(
                     continue;
                 };
                 if matches!(
-                    notification,
+                    notification.notification,
                     codex_app_server_protocol::ServerNotification::ThreadStarted(_)
                 ) {
                     return;
@@ -490,7 +493,7 @@ async fn read_thread_started_notification(
                     continue;
                 };
                 if matches!(
-                    notification,
+                    notification.notification,
                     codex_app_server_protocol::ServerNotification::ThreadStarted(_)
                 ) {
                     return;
@@ -673,6 +676,7 @@ async fn turn_start_jsonrpc_span_parents_core_turn_spans() -> Result<()> {
                     personality: None,
                     output_schema: None,
                     collaboration_mode: None,
+                    multi_agent_mode: None,
                 },
             },
             Some(remote_trace),

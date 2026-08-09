@@ -12,8 +12,12 @@ impl PersonalitySpecInstructions {
 }
 
 impl ContextualUserFragment for PersonalitySpecInstructions {
-    fn role() -> &'static str {
+    fn role(&self) -> &'static str {
         "developer"
+    }
+
+    fn requires_separate_message(&self) -> bool {
+        true
     }
 
     fn markers(&self) -> (&'static str, &'static str) {

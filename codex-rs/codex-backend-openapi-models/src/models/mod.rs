@@ -13,6 +13,9 @@ pub use self::config_file_response::ConfigFileResponse;
 pub(crate) mod delivered_config_toml;
 pub use self::delivered_config_toml::DeliveredConfigToml;
 
+pub(crate) mod delivered_managed_layers;
+pub use self::delivered_managed_layers::DeliveredManagedLayers;
+
 pub(crate) mod delivered_requirements_toml;
 pub use self::delivered_requirements_toml::DeliveredRequirementsToml;
 
@@ -56,3 +59,9 @@ pub use self::rate_limit_window_snapshot::RateLimitWindowSnapshot;
 
 pub(crate) mod credit_status_details;
 pub use self::credit_status_details::CreditStatusDetails;
+
+pub(crate) mod spend_control_limit_details;
+pub use self::spend_control_limit_details::SpendControlLimitDetails;
+
+pub(crate) mod spend_control_status_details;
+pub use self::spend_control_status_details::SpendControlStatusDetails;

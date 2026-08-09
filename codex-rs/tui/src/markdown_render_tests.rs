@@ -8,9 +8,11 @@ use std::path::Path;
 
 use crate::markdown_render::COLON_LOCATION_SUFFIX_RE;
 use crate::markdown_render::HASH_LOCATION_SUFFIX_RE;
+use crate::markdown_render::render_markdown_lines_with_width_and_cwd;
 use crate::markdown_render::render_markdown_text;
 use crate::markdown_render::render_markdown_text_with_width;
 use crate::markdown_render::render_markdown_text_with_width_and_cwd;
+use insta::assert_debug_snapshot;
 use insta::assert_snapshot;
 
 fn render_markdown_text_for_cwd(input: &str, cwd: &Path) -> Text<'static> {
@@ -27,6 +29,92 @@ fn plain_lines(text: &Text<'_>) -> Vec<String> {
                 .collect::<String>()
         })
         .collect()
+}
+
+#[test]
+fn bare_url_with_tilde_keeps_complete_hyperlink() {
+    let destination =
+        "https://www.cs.tufts.edu/~nr/cs257/archive/olin-shivers/dissertation.pdf";
+    let lines = render_markdown_lines_with_width_and_cwd(
+        destination,
+        /*width*/ Some(80),
+        /*cwd*/ None,
+    );
+    let rendered = lines
+        .iter()
+        .map(|line| {
+            let text = line
+                .line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            let hyperlinks = line
+                .hyperlinks
+                .iter()
+                .map(|link| (link.columns.clone(), link.destination.as_str()))
+                .collect::<Vec<_>>();
+            (text, hyperlinks)
+        })
+        .collect::<Vec<_>>();
+
+    assert_debug_snapshot!(rendered);
+}
+
+#[test]
+fn table_url_with_tilde_keeps_complete_hyperlink() {
+    let destination =
+        "https://www.cs.tufts.edu/~nr/cs257/archive/olin-shivers/dissertation.pdf";
+    let markdown = format!("| URL |\n| --- |\n| {destination} |\n");
+    let lines = render_markdown_lines_with_width_and_cwd(
+        &markdown,
+        /*width*/ Some(32),
+        /*cwd*/ None,
+    );
+    let destinations = lines
+        .iter()
+        .flat_map(|line| line.hyperlinks.iter())
+        .map(|link| link.destination.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(!destinations.is_empty());
+    assert_eq!(destinations, vec![destination; destinations.len()]);
+}
+
+#[test]
+fn merged_text_events_preserve_entity_decoding() {
+    let source = "https://example.com/a&amp;b~c";
+    let destination = "https://example.com/a&b~c";
+    let lines = render_markdown_lines_with_width_and_cwd(
+        source,
+        /*width*/ Some(80),
+        /*cwd*/ None,
+    );
+    let rendered = lines
+        .iter()
+        .map(|line| {
+            let text = line
+                .line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            let hyperlinks = line
+                .hyperlinks
+                .iter()
+                .map(|link| (link.columns.clone(), link.destination.as_str()))
+                .collect::<Vec<_>>();
+            (text, hyperlinks)
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        rendered,
+        vec![(
+            destination.to_string(),
+            vec![(0..destination.len(), destination)],
+        )],
+    );
 }
 
 #[test]
@@ -1634,6 +1722,24 @@ fn table_renders_key_value_records_when_compact_fragmentation_is_systemic_snapsh
     let text = render_markdown_text_with_width(md, Some(/*width*/ 17));
 
     assert_snapshot!(plain_lines(&text).join("\n"));
+}
+
+#[test]
+fn table_renders_halfwidth_sound_marks_at_constrained_width_snapshot() {
+    let md = r#"| Key | Notes |
+| --- | --- |
+| ｶﾞﾊﾟtail | First ｶﾞ row with an escaped \| pipe. |
+| ﾊﾟｶﾞtail | Second ﾊﾟ row with an escaped \| pipe. |
+| short | Final ｶﾞﾊﾟ row. |
+"#;
+    let grid = render_markdown_text_with_width(md, Some(/*width*/ 23));
+    let records = render_markdown_text_with_width(md, Some(/*width*/ 17));
+
+    assert_snapshot!(format!(
+        "grid (23 cells):\n{}\n\nrecords (17 cells):\n{}",
+        plain_lines(&grid).join("\n"),
+        plain_lines(&records).join("\n")
+    ));
 }
 
 #[test]
