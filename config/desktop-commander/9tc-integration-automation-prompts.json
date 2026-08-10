@@ -1,0 +1,141 @@
+{
+  "version": "2.0.0-integration",
+  "description": "Desktop Commander integration automation prompts for 9TC PMO",
+  "projectContext": {
+    "name": "9 Turnbull Court Duplex Development",
+    "location": "Brunswick West VIC 3055",
+    "focus": "Integration Automation & Workflow Optimization"
+  },
+  "prompts": [
+    {
+      "id": "int_01",
+      "title": "Set Up Google Sheets Auto-Sync",
+      "description": "Configure automatic synchronization between Desktop Commander and 9TC PMO Master Sheet for real-time data updates.",
+      "prompt": "Let's set up Google Sheets auto-sync for 9TC! 🔄\n\nI'll configure automatic synchronization between your local project data and the 9TC PMO Master Sheet.\n\n**What I'll do:**\n- Link to your Google Sheet (ID: 1Qs4tnxCadvpaKB5b-JMtZ-IurA1cZoQtFL5NL-Pw8po)\n- Set up bi-directional sync for:\n  - Invoices (🧾 INVOICES sheet)\n  - RFIs (📝 RFI_REGISTER sheet)\n  - Variations (⚡ VARIATIONS sheet)\n  - Permits (📜 PERMITS_APPROVALS sheet)\n- Configure sync frequency (15-min for invoices/RFIs, daily for permits)\n- Set up conflict resolution (manual review for conflicts)\n\n**Authentication:**\nI'll help you set up Google service account credentials if needed.\n\nShall we begin setting up the Google Sheets integration?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Data Sync",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "Database",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_02",
+      "title": "Configure Email Auto-Import Rules",
+      "description": "Set up automated email rules to process and import project documents directly from your inbox.",
+      "prompt": "Let's automate your email document processing! 📧\n\nI'll create smart rules to automatically process incoming project emails and attachments.\n\n**Auto-Import Rules I'll Set Up:**\n\n1. **Invoice Auto-Import**\n   - Trigger: Emails from suppliers with 'Invoice' or 'Payment Request'\n   - Action: Extract attachments → Save to ~/9TC-Project-Data/Invoices → Add to sheet\n\n2. **RFI Auto-Import**\n   - Trigger: Emails with 'RFI' or 'Request for Information'\n   - Action: Extract → Save to RFI Register → Mark for review\n\n3. **Drawing Auto-Import**\n   - Trigger: Emails with drawing attachments (.dwg, .pdf, .dxf, .rvt)\n   - Action: Extract → Organize by type → Detect revisions → Update register\n\n4. **Permit Auto-Import**\n   - Trigger: Emails with 'Permit', 'Approval', or 'Certificate'\n   - Action: Extract → Save → Extract expiry date → Set alerts\n\n**Gmail Labels Needed:**\n- 9TC-Invoices\n- 9TC-RFIs\n- 9TC-Drawings\n- 9TC-Permits\n\nDo you want me to set up these Gmail rules and create the labels?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Email Automation",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "Mail",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_03",
+      "title": "Enable Automated Backups & Archiving",
+      "description": "Configure automatic daily backups of all 9TC project files to Google Drive with version control.",
+      "prompt": "Let's set up automated backups! 💾\n\nI'll configure daily automated backups of all your 9TC project data to Google Drive.\n\n**Backup Configuration:**\n\n📁 **Source Directories:**\n- ~/9TC-Project-Data (all project files)\n- Google Sheets (9TC PMO Master Sheet)\n\n☁️ **Backup Destination:**\n- Google Drive folder: \"9TC Project Backups\"\n- Automatic daily backups at 2:00 AM\n\n📊 **Retention Policy:**\n- 7 daily backups (rolling)\n- 4 weekly backups\n- 12 monthly backups\n\n🔒 **Security Features:**\n- Compression enabled\n- Encryption enabled\n- Version control enabled\n- Automatic corruption detection\n\n🚫 **Exclusions:**\n- .DS_Store, *.tmp files\n- node_modules, .git folders\n\n**Benefits:**\n- Never lose critical project data\n- Restore from any point in time\n- Protect against accidental deletion\n- Meet compliance requirements\n\nShall I enable automated backups now?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Data Protection",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "HardDrive",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_04",
+      "title": "Generate Automated Monthly Reports",
+      "description": "Set up automatic generation and distribution of monthly project status reports to stakeholders.",
+      "prompt": "Let's automate your monthly reports! 📊\n\nI'll configure automatic generation and distribution of comprehensive monthly project status reports.\n\n**Automated Report Features:**\n\n📋 **Monthly Report Contents:**\n- Executive Summary (key highlights)\n- Budget Status (spent vs. budget, variations)\n- Schedule Status (progress vs. plan, delays)\n- Invoice Summary (paid, pending, overdue)\n- RFI Status (open, resolved, overdue)\n- Variation Summary (total variations, cost impact)\n- Permits Status (all approvals, expiries)\n- Risk Register (critical issues)\n- Upcoming Milestones\n\n📧 **Automatic Distribution:**\nEvery 1st of the month at 9:00 AM\n\n**Recipients:**\n- Project Manager\n- Principal/Owner\n- Finance Team\n- Head Contractor\n\n📁 **Export Formats:**\n- PDF (for easy sharing)\n- Excel (for analysis)\n- Email delivery with summary\n\n**Data Sources:**\n- 9TC PMO Master Sheet\n- Local project files\n- Email attachments\n\n**Benefits:**\n- Stakeholders always informed\n- Consistent reporting\n- Professional documentation\n- Save hours of manual work\n\nShall I set up the automated monthly reporting?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Reporting",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "FileText",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_05",
+      "title": "Create Supplier Payment Statements",
+      "description": "Generate automated supplier payment statements with outstanding invoices and payment history.",
+      "prompt": "Let's automate supplier statements! 💰\n\nI'll set up automated generation of supplier payment statements with full transaction history.\n\n**Statement Contents:**\n- Supplier name and contact info\n- All invoices (paid and outstanding)\n- Payment dates and amounts\n- Account balance\n- Aging analysis (current, 30, 60, 90+ days)\n- Terms and conditions\n- Notes and disputes\n\n**Automation Options:**\n\n1. **On-Demand Statements**\n   - Generate any time for a specific supplier\n   - Export as Excel or PDF\n   - Email directly to supplier\n\n2. **Automatic Monthly Statements**\n   - Generate for all active suppliers\n   - Email via supplier contact email\n   - Attach to email for easy access\n\n**Benefits:**\n- Suppliers have accurate account information\n- Reduce payment disputes\n- Improve supplier relationships\n- Professional communication\n- Audit trail for accounting\n\n**Data Source:**\n- 9TC PMO Master Sheet (🧾 INVOICES)\n- Email correspondence\n\nShall I set up automated supplier statements?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Financial Automation",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "DollarSign",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_06",
+      "title": "Set Up Permit Expiry Alerts",
+      "description": "Configure automatic alerts for expiring permits, approvals, and compliance certificates.",
+      "prompt": "Let's set up permit expiry alerts! ⏰\n\nI'll configure automatic monitoring and alerts for all permits and approvals to prevent lapses in compliance.\n\n**Alert Configuration:**\n\n📅 **Monitoring:**\n- All building permits\n- Council approvals\n- Compliance certificates\n- Insurance policies\n- Safety certifications\n\n🔔 **Alert Schedule:**\n- 60 days before expiry\n- 30 days before expiry\n- 14 days before expiry\n- Expiry date (final notice)\n- After expiry (override alert)\n\n📊 **Alert Destinations:**\n- Desktop Commander notifications\n- Email alerts\n- SMS alerts (optional)\n- Google Calendar events\n- Slack notifications (if configured)\n\n📋 **Alert Information:**\n- Permit name and number\n- Current status\n- Expiry date\n- Authority/Issuer\n- Renewal instructions\n- Contact for renewal\n\n**Benefits:**\n- Never miss a permit expiry\n- Plan renewals in advance\n- Maintain compliance\n- Avoid project delays\n- Reduce risk\n\n**Data Source:**\n- 9TC PMO Master Sheet (📜 PERMITS_APPROVALS)\n- Email records\n\nShall I enable permit expiry alerts?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Compliance Monitoring",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "AlertCircle",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_07",
+      "title": "Sync Drawing Revisions Automatically",
+      "description": "Monitor drawing sources and automatically update drawing register with revisions and supersessions.",
+      "prompt": "Let's automate drawing management! 📐\n\nI'll set up automatic monitoring and updating of your drawing register with revisions and version tracking.\n\n**Automatic Drawing Management:**\n\n📊 **What I'll Track:**\n- New drawings received\n- Drawing revisions (A, B, C, etc.)\n- Superseded versions\n- Previous versions\n- Change dates and authors\n- File locations\n- Related documents\n\n🔄 **Monitoring Sources:**\n- Email attachments with drawings\n- Shared folders (Dropbox, Google Drive)\n- Contractor portals\n- Local project folders\n\n📋 **Automatic Actions:**\n- Detect new drawings\n- Identify revisions\n- Mark superseded versions\n- Update drawing register\n- Create version history\n- Archive old versions\n- Alert project team to new revisions\n\n🏗️ **Drawing Register Update:**\n- Drawing number/title\n- Current revision\n- Date received\n- Discipline/Type\n- Supersedes (previous version)\n- Location (local + cloud)\n- Status (current/archived)\n\n**Benefits:**\n- Always working with current drawings\n- Prevent costly errors from old versions\n- Complete revision history\n- Audit trail for compliance\n- Easy version comparison\n\nShall I enable automatic drawing sync?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Drawing Management",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "LayoutTemplate",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_08",
+      "title": "Track RFI Response Times Automatically",
+      "description": "Monitor RFI status and automatically track response times, identify delays, and escalate overdue items.",
+      "prompt": "Let's automate RFI tracking! 📬\n\nI'll set up automatic monitoring and tracking of all RFIs with response time alerts and escalation.\n\n**Automatic RFI Tracking:**\n\n⏱️ **Response Time Monitoring:**\n- Track time from RFI issue to response\n- Identify slow responders\n- Alert on approaching due dates\n- Escalate overdue RFIs\n- Generate response time reports\n\n🚨 **Alert Schedule:**\n- Day before due date\n- On due date\n- 3 days overdue\n- 7 days overdue\n- 14 days overdue (critical)\n\n📊 **Tracking Data:**\n- RFI number and date\n- Description and contractor\n- Due date and response date\n- Response time (days)\n- Impact on schedule/cost\n- Status (open/resolved)\n- Related documents\n\n📋 **Automatic Actions:**\n- Log new RFIs\n- Record responses\n- Calculate response times\n- Flag slow responders\n- Generate escalation emails\n- Update project schedule\n- Notify stakeholders\n\n🎯 **Escalation Workflow:**\n- 3 days overdue: Reminder email\n- 7 days overdue: CC to Project Manager\n- 14 days overdue: CC to Principal/Owner\n- 21 days overdue: Weekly status report\n\n**Benefits:**\n- Prevent project delays from RFI backlog\n- Identify problem contractors\n- Maintain schedule\n- Improve communication\n- Complete audit trail\n\nShall I enable automatic RFI tracking?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Project Coordination",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "MessageCircle",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_09",
+      "title": "Export Drawing Register & Revisions",
+      "description": "Generate comprehensive drawing register reports with revision history and superseded version tracking.",
+      "prompt": "Let's export your drawing register! 📋\n\nI'll generate a comprehensive drawing register with full revision history and superseded version tracking.\n\n**Export Contents:**\n\n📊 **Drawing Register Sections:**\n1. All Current Drawings\n   - Drawing number and title\n   - Current revision\n   - Date received\n   - Discipline/Type\n   - File location\n   - Status\n\n2. Revision History\n   - All versions of each drawing\n   - Revision dates\n   - Changes from previous\n   - Author/Reviser\n   - Archive location\n\n3. Superseded Drawings\n   - Previously current versions\n   - Supersession date\n   - What superseded them\n   - Archive location\n\n4. Current Versions Only\n   - Quick reference list\n   - Print-ready format\n   - Current file locations\n\n**Export Formats:**\n- Excel (for sorting/analysis)\n- PDF (for distribution)\n- CSV (for data import)\n- JSON (for system integration)\n\n**Automation Options:**\n1. Generate on demand\n2. Auto-generate weekly\n3. Auto-generate when new drawing received\n4. Email to project team\n\n**Benefits:**\n- Always have current drawing list\n- Professional documentation\n- Easy reference\n- Audit compliance\n- Contractor reference\n\nShall I generate your drawing register export now?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "Documentation",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "FileStack",
+      "author": "9TC Integration Team",
+      "verified": true
+    },
+    {
+      "id": "int_10",
+      "title": "Set Up Daily Data Sync & Health Check",
+      "description": "Configure automated daily synchronization of all project data and automated health checks for data integrity.",
+      "prompt": "Let's set up daily data sync & health checks! ⚙️\n\nI'll configure automatic daily synchronization of all project data and system health checks.\n\n**Daily Sync Schedule:**\nEvery day at 6:00 AM\n\n**Sync Tasks:**\n1. Sync Google Sheets to local cache\n2. Check for new emails with project docs\n3. Scan local folders for new files\n4. Update drawing register with new versions\n5. Check permit expiry dates\n6. Identify overdue RFIs\n7. Identify overdue invoices\n8. Verify backup completion\n\n**Health Checks:**\n✅ Data Integrity\n- Verify all files accessible\n- Check for corrupted files\n- Validate Google Sheets connections\n- Test backup connectivity\n\n✅ Compliance Checks\n- Verify permit status\n- Check upcoming expirations\n- Validate required documents\n- Check approval status\n\n✅ Process Checks\n- Review for duplicate documents\n- Verify filing consistency\n- Check for unprocessed emails\n- Validate sheet data entry\n\n**Alert Actions:**\n- Send summary email to PM\n- Log issues in project log\n- Create action items for problems\n- Escalate critical issues\n\n**Report Generation:**\n- Daily health check report\n- Issues requiring attention\n- Action items created\n- File sync status\n\n**Benefits:**\n- Peace of mind data is synced\n- Proactive issue detection\n- Early warning of problems\n- Complete system visibility\n- Minimal manual oversight\n\nShall I enable daily data sync & health checks?",
+      "categories": ["integration", "automation", "9tc-project"],
+      "secondaryTag": "System Maintenance",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "Activity",
+      "author": "9TC Integration Team",
+      "verified": true
+    }
+  ]
+}
