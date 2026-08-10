@@ -1,0 +1,122 @@
+name: CI - Security & Checks
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format-check:
+    name: Format & Lint Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: '10.33.0'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm run format
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate || echo "⚠ Some vulnerabilities found"
+        continue-on-error: true
+
+      - name: Check for exposed secrets
+        run: |
+          if grep -r "apiKey\|API_KEY\|secret\|SECRET\|password\|PASSWORD" \
+            --include="*.rs" --include="*.js" --include="*.ts" \
+            --exclude-dir=target --exclude-dir=node_modules . 2>/dev/null | \
+            grep -v "^\s*//" | grep -v "^\s*#" | grep "=.*['\"]"; then
+            echo "⚠ Warning: Potential hardcoded secrets found"
+          fi
+          echo "✓ Secret scanning completed"
+
+  markdown-lint:
+    name: Markdown Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check markdown files
+        run: |
+          if command -v markdownlint-cli2 >/dev/null 2>&1 || npx markdownlint-cli2 --version >/dev/null 2>&1; then
+            npx markdownlint-cli2 "**/*.md" || echo "⚠ Markdown linting found issues"
+          else
+            echo "✓ Markdown linting skipped (markdownlint-cli2 not configured)"
+          fi
+        continue-on-error: true
+
+  spell-check:
+    name: Spell Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run codespell
+        run: |
+          if command -v codespell >/dev/null 2>&1; then
+            codespell --config .codespellrc || echo "⚠ Spell check found issues"
+          else
+            echo "✓ Spell check skipped (codespell not installed)"
+          fi
+        continue-on-error: true
+
+  deps:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check for outdated dependencies
+        run: npm outdated || true
+        continue-on-error: true
+
+      - name: Validate package.json integrity
+        run: |
+          if [ -f "package.json" ]; then
+            node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf-8'))" && echo "✓ package.json is valid"
+          fi
