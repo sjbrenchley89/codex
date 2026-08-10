@@ -1,0 +1,141 @@
+{
+  "version": "2.0.0-9tc",
+  "description": "Desktop Commander onboarding prompts customized for 9 Turnbull Court PMO",
+  "projectContext": {
+    "name": "9 Turnbull Court Duplex Development",
+    "location": "Brunswick West VIC 3055",
+    "type": "Residential Construction Project Management"
+  },
+  "prompts": [
+    {
+      "id": "9tc_01",
+      "title": "Process New Project Documents",
+      "description": "Scan and organize new project documents from your Downloads folder into the 9TC document register.",
+      "prompt": "Let's process new 9TC project documents! 📄\n\nI'll help you organize documents from your Downloads folder into the project structure.\n\n**What type of documents are you importing?**\n- Invoices & Payment Requests\n- RFI (Request for Information) correspondence\n- Construction Drawings & Plans\n- Permits & Approvals\n- Supplier Specifications\n- Site Photos & Progress Reports\n- Variation Orders / Change Orders\n- Meeting Minutes\n\nLet me scan your Downloads folder and we'll classify and organize them automatically!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Document Management",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "FileStack",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_02",
+      "title": "Analyze Project Drawings & Plans",
+      "description": "Extract and organize construction drawings, identify revisions, and manage CAD files for 9TC.",
+      "prompt": "Let's organize your 9TC construction drawings! 🏗️\n\nI can help you:\n- Identify and catalog all construction drawings\n- Track drawing revisions and superseded plans\n- Extract plan details and specifications\n- Organize by type (Floor Plans, Elevations, Sections, Details)\n- Create a drawing register\n\n**Where are your drawings located?** (e.g., ~/9TC-Project-Data/Drawings)\n\nI'll organize them and create a master drawing register for easy tracking!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Drawing Management",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "LayoutTemplate",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_03",
+      "title": "Invoice & Payment Tracking",
+      "description": "Extract invoice data, track payments, and identify overdue accounts for the 9TC project.",
+      "prompt": "Let's track 9TC project invoices and payments! 💰\n\nI'll help you:\n- Extract invoice data (supplier, amount, due date, GST)\n- Identify overdue payments\n- Reconcile paid vs. unpaid invoices\n- Generate supplier payment summaries\n- Flag budget variances\n\n**Where are your invoices stored?** (e.g., ~/9TC-Project-Data/Invoices)\n\nI can connect to your invoice register and keep your payment tracking up to date!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Financial Tracking",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "DollarSign",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_04",
+      "title": "RFI (Request for Information) Management",
+      "description": "Track, organize, and follow up on RFI correspondence and responses for 9TC.",
+      "prompt": "Let's manage your 9TC RFI (Request for Information) register! ✉️\n\nI can help you:\n- Scan and log new RFI requests\n- Track response dates and status\n- Identify overdue RFI responses\n- Organize by trades or building systems\n- Generate RFI status reports\n- Flag critical or blocking RFIs\n\n**Where are your RFI documents stored?**\n\nI'll organize them and help keep your RFI tracking current and prevent delays!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Project Correspondence",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "MessageCircle",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_05",
+      "title": "Permits & Approvals Tracking",
+      "description": "Track building permits, council approvals, and compliance certifications for 9TC.",
+      "prompt": "Let's track 9TC permits and approvals! ✅\n\nI'll help you:\n- Catalog all building permits and approvals\n- Track approval dates and valid periods\n- Identify expired or expiring permits\n- Monitor compliance certificate status\n- Generate permit status reports\n- Flag critical deadlines\n\n**Where are your permits and approvals stored?**\n\nI'll organize them and help you stay on top of regulatory requirements!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Regulatory Compliance",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "CheckCircle2",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_06",
+      "title": "Variation Orders & Change Management",
+      "description": "Track variation orders, change orders, and budget impacts for 9TC.",
+      "prompt": "Let's manage 9TC variation orders and changes! 📋\n\nI can help you:\n- Log all variation orders and change orders\n- Extract cost impacts and schedule changes\n- Track approval status\n- Calculate cumulative variations\n- Generate change impact reports\n- Flag budget or schedule risks\n\n**Where are your variation orders stored?**\n\nI'll organize them and help track the financial and schedule impacts of all changes!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Change Control",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "GitBranch",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_07",
+      "title": "Site Progress & Photo Documentation",
+      "description": "Organize and catalog site progress photos and visual documentation for 9TC.",
+      "prompt": "Let's organize 9TC site progress photos! 📸\n\nI can help you:\n- Catalog all site progress photos\n- Tag photos by location, trade, or date\n- Create visual progress reports\n- Extract metadata (date, camera info)\n- Organize photos chronologically\n- Generate visual milestone documentation\n\n**Where are your site photos stored?**\n\nI'll help you create a visual record of project progress!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Site Documentation",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "ImageIcon",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_08",
+      "title": "Supplier & Contractor Database",
+      "description": "Build and maintain a supplier and contractor database for 9TC with contact and performance data.",
+      "prompt": "Let's build your 9TC supplier and contractor database! 📇\n\nI can help you:\n- Extract supplier/contractor details from invoices and correspondence\n- Create a master contact list with phone/email\n- Track performance ratings and feedback\n- Organize by trade or service type\n- Generate supplier reports\n- Identify key contacts and escalation paths\n\nI'll create a comprehensive contractor and supplier database from your existing documents!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Vendor Management",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "Users",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_09",
+      "title": "Generate 9TC Project Status Report",
+      "description": "Create comprehensive project status reports with key metrics, risks, and upcoming milestones.",
+      "prompt": "Let's generate a 9TC project status report! 📊\n\nI'll analyze and summarize:\n- Current construction progress and completion %\n- Budget status vs. variations\n- Outstanding payments and cash flow\n- Overdue RFIs and their impact\n- Permit and approval status\n- Risk and issue register\n- Next steps and critical path items\n- Upcoming milestones\n\nI'll create a comprehensive executive summary of the current project state!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Reporting",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "BarChart3",
+      "author": "9TC PMO Team",
+      "verified": true
+    },
+    {
+      "id": "9tc_10",
+      "title": "Meeting Minutes & Action Items",
+      "description": "Extract and organize meeting minutes, track action items and owner responsibilities.",
+      "prompt": "Let's organize 9TC meeting minutes and action items! 📝\n\nI can help you:\n- Extract and catalog meeting minutes\n- Identify all action items and owners\n- Track completion status\n- Flag overdue actions\n- Create action item registers by owner\n- Generate meeting summaries\n- Track decisions and approvals\n\n**Where are your meeting minutes stored?**\n\nI'll create an action item tracking system and keep everyone accountable!",
+      "categories": ["onboarding", "9tc-project"],
+      "secondaryTag": "Meeting Management",
+      "votes": 0,
+      "gaClicks": 0,
+      "icon": "ClipboardList",
+      "author": "9TC PMO Team",
+      "verified": true
+    }
+  ]
+}
