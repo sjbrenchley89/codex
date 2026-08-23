@@ -1,0 +1,355 @@
+{
+  "version": "2.0.0-integration",
+  "projectName": "9 Turnbull Court (9TC) - Integration Automation",
+  "integrations": {
+    "googleSheets": {
+      "enabled": true,
+      "masterSheetId": "1Qs4tnxCadvpaKB5b-JMtZ-IurA1cZoQtFL5NL-Pw8po",
+      "sheetMappings": {
+        "invoices": {
+          "sheetName": "🧾 INVOICES",
+          "dataColumns": {
+            "supplier": "A",
+            "invoiceNumber": "B",
+            "amount": "C",
+            "gst": "D",
+            "dueDate": "E",
+            "dateReceived": "F",
+            "status": "G",
+            "notes": "H"
+          },
+          "autoSync": true,
+          "syncFrequency": "15m"
+        },
+        "rfiRegister": {
+          "sheetName": "📝 RFI_REGISTER",
+          "dataColumns": {
+            "rfiNumber": "A",
+            "dateIssued": "B",
+            "contractor": "C",
+            "description": "D",
+            "dueDate": "E",
+            "dateResponded": "F",
+            "status": "G",
+            "impact": "H"
+          },
+          "autoSync": true,
+          "syncFrequency": "15m"
+        },
+        "variations": {
+          "sheetName": "⚡ VARIATIONS",
+          "dataColumns": {
+            "variationNumber": "A",
+            "dateIssued": "B",
+            "description": "C",
+            "originalAmount": "D",
+            "variationAmount": "E",
+            "scheduleDays": "F",
+            "status": "G",
+            "approvalDate": "H"
+          },
+          "autoSync": true,
+          "syncFrequency": "15m"
+        },
+        "documentRegister": {
+          "sheetName": "📚 DOCUMENT_REGISTER",
+          "dataColumns": {
+            "documentId": "A",
+            "title": "B",
+            "type": "C",
+            "dateReceived": "D",
+            "source": "E",
+            "location": "F",
+            "status": "G",
+            "notes": "H"
+          },
+          "autoSync": true,
+          "syncFrequency": "30m"
+        },
+        "permits": {
+          "sheetName": "📜 PERMITS_APPROVALS",
+          "dataColumns": {
+            "permitType": "A",
+            "permitNumber": "B",
+            "dateIssued": "C",
+            "expiryDate": "D",
+            "authority": "E",
+            "status": "F",
+            "notes": "G"
+          },
+          "autoSync": true,
+          "syncFrequency": "daily"
+        }
+      },
+      "authentication": {
+        "method": "serviceAccount",
+        "credentialsPath": "~/.9tc/google-credentials.json",
+        "scopes": ["sheets", "drive"]
+      }
+    },
+    "email": {
+      "enabled": true,
+      "provider": "gmail",
+      "inboxRules": [
+        {
+          "id": "invoice_auto_import",
+          "name": "Auto-import Invoices",
+          "triggerLabel": "9TC-Invoices",
+          "filters": {
+            "from": ["invoices@*", "accounts@*", "billing@*"],
+            "subject": ["invoice", "payment request", "tax invoice"],
+            "hasAttachment": true
+          },
+          "actions": {
+            "extractAttachments": true,
+            "saveToFolder": "~/9TC-Project-Data/Invoices",
+            "autoClassify": true,
+            "addToSheet": "🧾 INVOICES",
+            "tagEmail": "imported"
+          }
+        },
+        {
+          "id": "rfi_auto_import",
+          "name": "Auto-import RFIs",
+          "triggerLabel": "9TC-RFIs",
+          "filters": {
+            "subject": ["RFI", "Request for Information", "clarification"],
+            "hasAttachment": true
+          },
+          "actions": {
+            "extractAttachments": true,
+            "saveToFolder": "~/9TC-Project-Data/RFI Register",
+            "autoClassify": true,
+            "addToSheet": "📝 RFI_REGISTER",
+            "tagEmail": "imported",
+            "markAsReadyForReview": true
+          }
+        },
+        {
+          "id": "drawing_auto_import",
+          "name": "Auto-import Drawings",
+          "triggerLabel": "9TC-Drawings",
+          "filters": {
+            "subject": ["drawing", "plan", "CAD", "dwg", "revit"],
+            "hasAttachment": true,
+            "attachmentExtensions": [".dwg", ".pdf", ".dxf", ".rvt", ".zip"]
+          },
+          "actions": {
+            "extractAttachments": true,
+            "saveToFolder": "~/9TC-Project-Data/Drawings & CAD",
+            "autoClassify": true,
+            "extractMetadata": true,
+            "detectRevisions": true,
+            "tagEmail": "imported"
+          }
+        },
+        {
+          "id": "permit_auto_import",
+          "name": "Auto-import Permits",
+          "triggerLabel": "9TC-Permits",
+          "filters": {
+            "subject": ["permit", "approval", "certificate", "compliance"],
+            "hasAttachment": true
+          },
+          "actions": {
+            "extractAttachments": true,
+            "saveToFolder": "~/9TC-Project-Data/Permits & Approvals",
+            "autoClassify": true,
+            "extractExpiryDate": true,
+            "addToSheet": "📜 PERMITS_APPROVALS",
+            "setReminder": "30d-before-expiry",
+            "tagEmail": "imported"
+          }
+        }
+      ],
+      "outboxTemplates": [
+        {
+          "id": "rfi_response_tracking",
+          "name": "RFI Response Tracking",
+          "trigger": "On RFI response email received",
+          "actions": {
+            "extractResponseData": true,
+            "updateSheet": "📝 RFI_REGISTER",
+            "updateColumns": ["dateResponded", "status"],
+            "createFollowupTask": true
+          }
+        }
+      ]
+    },
+    "backup": {
+      "enabled": true,
+      "provider": "googleDrive",
+      "schedule": "daily",
+      "backupTime": "02:00",
+      "sourceDirectories": [
+        "~/9TC-Project-Data"
+      ],
+      "backupDestination": {
+        "folderId": "9TC_BACKUP_FOLDER_ID",
+        "folderName": "9TC Project Backups"
+      },
+      "retentionPolicy": {
+        "dailyBackups": 7,
+        "weeklyBackups": 4,
+        "monthlyBackups": 12
+      },
+      "compression": true,
+      "encryption": true,
+      "versioning": true,
+      "excludePatterns": [
+        ".DS_Store",
+        "*.tmp",
+        "node_modules",
+        ".git"
+      ]
+    },
+    "dataExport": {
+      "enabled": true,
+      "exportFormats": [
+        "excel",
+        "pdf",
+        "csv",
+        "json"
+      ],
+      "templates": [
+        {
+          "id": "monthly_report",
+          "name": "Monthly Project Report",
+          "format": "pdf",
+          "sections": [
+            "executive_summary",
+            "budget_status",
+            "schedule_status",
+            "invoice_summary",
+            "rfi_status",
+            "variation_summary",
+            "permits_status",
+            "risk_register",
+            "upcoming_milestones"
+          ],
+          "dataSource": "googleSheets",
+          "automationTrigger": "monthly-first-of-month"
+        },
+        {
+          "id": "supplier_statement",
+          "name": "Supplier Payment Statement",
+          "format": "excel",
+          "sections": [
+            "supplier_summary",
+            "outstanding_invoices",
+            "payment_history",
+            "account_balance"
+          ],
+          "dataSource": "googleSheets",
+          "parameterized": true
+        },
+        {
+          "id": "drawing_register",
+          "name": "Drawing Register & Revisions",
+          "format": "excel",
+          "sections": [
+            "all_drawings",
+            "revision_history",
+            "superseded_drawings",
+            "current_versions"
+          ],
+          "dataSource": "fileSystem+googleSheets",
+          "automationTrigger": "on-demand"
+        },
+        {
+          "id": "compliance_report",
+          "name": "Compliance & Permits Report",
+          "format": "pdf",
+          "sections": [
+            "permit_status",
+            "expiry_alerts",
+            "compliance_certificates",
+            "approvals_summary"
+          ],
+          "dataSource": "googleSheets",
+          "automationTrigger": "weekly"
+        }
+      ],
+      "distributionList": {
+        "projectManager": ["project.manager@example.com"],
+        "principal": ["principal@example.com"],
+        "finance": ["finance@example.com"],
+        "contractor": ["contractor@example.com"]
+      }
+    },
+    "webhooks": {
+      "enabled": true,
+      "incomingWebhooks": [
+        {
+          "id": "invoice_webhook",
+          "endpoint": "/webhooks/invoice",
+          "trigger": "Invoice received from supplier system",
+          "action": "Auto-import and sync to sheet"
+        },
+        {
+          "id": "drawing_webhook",
+          "endpoint": "/webhooks/drawing",
+          "trigger": "New drawing uploaded to shared folder",
+          "action": "Auto-organize and update register"
+        }
+      ]
+    },
+    "automation": {
+      "enabled": true,
+      "tasks": [
+        {
+          "id": "daily_sync",
+          "name": "Daily Data Sync",
+          "schedule": "daily@06:00",
+          "actions": [
+            "sync_sheets_to_local",
+            "check_permit_expiries",
+            "check_overdue_rfis",
+            "check_overdue_invoices"
+          ]
+        },
+        {
+          "id": "weekly_report",
+          "name": "Weekly Status Report",
+          "schedule": "weekly@monday-09:00",
+          "actions": [
+            "generate_status_report",
+            "email_to_stakeholders",
+            "update_dashboard"
+          ]
+        },
+        {
+          "id": "backup_job",
+          "name": "Backup All Project Files",
+          "schedule": "daily@02:00",
+          "actions": [
+            "backup_local_files",
+            "backup_spreadsheets",
+            "verify_backup_integrity"
+          ]
+        }
+      ]
+    }
+  },
+  "safety": {
+    "auditLogging": true,
+    "logIntegrationEvents": true,
+    "requireApprovalFor": [
+      "batch_updates",
+      "data_deletion",
+      "external_distribution"
+    ],
+    "dataValidation": true,
+    "conflictResolution": "manual_review"
+  },
+  "performance": {
+    "batchSize": 100,
+    "requestTimeout": 30000,
+    "retryPolicy": {
+      "maxRetries": 3,
+      "backoffMultiplier": 2
+    },
+    "caching": true,
+    "cacheTTL": 3600
+  }
+}

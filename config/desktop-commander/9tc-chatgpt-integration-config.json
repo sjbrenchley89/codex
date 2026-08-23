@@ -1,0 +1,357 @@
+{
+  "version": "2.0.0-chatgpt-ai",
+  "projectName": "9 Turnbull Court (9TC) - ChatGPT AI Integration",
+  "aiIntegration": {
+    "provider": "openai",
+    "models": {
+      "default": "gpt-4-turbo",
+      "fast": "gpt-4",
+      "summary": "gpt-3.5-turbo",
+      "vision": "gpt-4-vision"
+    },
+    "authentication": {
+      "method": "apiKey",
+      "keyPath": "~/.9tc/openai-api-key.txt",
+      "organization": "9tc-pmo",
+      "baseUrl": "https://api.openai.com/v1"
+    },
+    "rateLimit": {
+      "requestsPerMinute": 60,
+      "tokensPerMinute": 90000,
+      "concurrentRequests": 5
+    }
+  },
+  "aiCapabilities": {
+    "documentAnalysis": {
+      "enabled": true,
+      "invoiceAnalysis": {
+        "enabled": true,
+        "capabilities": [
+          "extract_supplier_info",
+          "extract_invoice_amount",
+          "extract_due_date",
+          "detect_gst_amount",
+          "identify_line_items",
+          "detect_payment_terms",
+          "flag_anomalies"
+        ],
+        "model": "gpt-4-vision",
+        "confidence_threshold": 0.95,
+        "autoCorrect": true,
+        "fallbackToOCR": true
+      },
+      "drawingAnalysis": {
+        "enabled": true,
+        "capabilities": [
+          "detect_drawing_type",
+          "extract_revision_info",
+          "identify_superseded_versions",
+          "extract_key_dimensions",
+          "detect_changes_from_previous",
+          "extract_scale_info",
+          "identify_disciplines"
+        ],
+        "model": "gpt-4-vision",
+        "confidence_threshold": 0.90
+      },
+      "permitAnalysis": {
+        "enabled": true,
+        "capabilities": [
+          "extract_permit_number",
+          "extract_issue_date",
+          "extract_expiry_date",
+          "extract_authority",
+          "identify_permit_type",
+          "extract_conditions",
+          "flag_renewal_requirements"
+        ],
+        "model": "gpt-4-turbo",
+        "confidence_threshold": 0.95
+      },
+      "rfiAnalysis": {
+        "enabled": true,
+        "capabilities": [
+          "extract_question",
+          "identify_discipline",
+          "estimate_complexity",
+          "identify_urgency",
+          "extract_due_date",
+          "flag_blockers",
+          "suggest_responder"
+        ],
+        "model": "gpt-4-turbo",
+        "confidence_threshold": 0.85
+      }
+    },
+    "emailProcessing": {
+      "enabled": true,
+      "intelProcessing": {
+        "emailSummary": {
+          "enabled": true,
+          "extractKey": ["sender", "subject", "action_required", "deadline", "attachments"],
+          "generateSummary": true,
+          "detectSentiment": true,
+          "classifyUrgency": true,
+          "suggestReply": false
+        },
+        "threadAnalysis": {
+          "enabled": true,
+          "summarizeThread": true,
+          "extractDecisions": true,
+          "extractActionItems": true,
+          "extractDeadlines": true
+        },
+        "attachmentPreview": {
+          "enabled": true,
+          "generatePreview": true,
+          "flagImportant": true,
+          "suggestAction": true
+        }
+      }
+    },
+    "reportGeneration": {
+      "enabled": true,
+      "monthlyReport": {
+        "sections": [
+          {
+            "name": "executive_summary",
+            "aiGenerated": true,
+            "prompt": "Based on project data, write 2-3 paragraph executive summary highlighting key achievements, risks, and next steps"
+          },
+          {
+            "name": "budget_analysis",
+            "aiGenerated": true,
+            "prompt": "Analyze budget data and write insights on spending trends, variations, and forecasts"
+          },
+          {
+            "name": "schedule_analysis",
+            "aiGenerated": true,
+            "prompt": "Analyze schedule data and write insights on progress, delays, and recovery plans"
+          },
+          {
+            "name": "risk_summary",
+            "aiGenerated": true,
+            "prompt": "Summarize active risks with AI assessment of probability and impact"
+          },
+          {
+            "name": "recommendations",
+            "aiGenerated": true,
+            "prompt": "Based on project status, provide 3-5 AI-generated recommendations for next steps"
+          }
+        ]
+      },
+      "weeklyReport": {
+        "autoGenerate": true,
+        "aiWritten": true,
+        "tone": "professional_concise"
+      },
+      "contractorSummary": {
+        "autoGenerate": true,
+        "aiWritten": true,
+        "includePaymentHistory": true,
+        "includePerformanceNotes": true
+      }
+    },
+    "communicationAssistance": {
+      "enabled": true,
+      "emailDraft": {
+        "enabled": true,
+        "contexts": [
+          {
+            "type": "rfi_response",
+            "purpose": "Draft response to RFI",
+            "tone": "professional"
+          },
+          {
+            "type": "contractor_escalation",
+            "purpose": "Draft escalation email to contractor",
+            "tone": "firm_professional"
+          },
+          {
+            "type": "payment_reminder",
+            "purpose": "Draft payment reminder to supplier",
+            "tone": "professional_courteous"
+          },
+          {
+            "type": "permit_request",
+            "purpose": "Draft permit application assistance",
+            "tone": "formal_professional"
+          },
+          {
+            "type": "meeting_minutes",
+            "purpose": "Draft meeting minutes from notes",
+            "tone": "formal"
+          }
+        ]
+      },
+      "documentReview": {
+        "enabled": true,
+        "checkList": [
+          "grammar_and_spelling",
+          "professional_tone",
+          "clarity",
+          "completeness",
+          "compliance_check"
+        ]
+      }
+    },
+    "dataInsights": {
+      "enabled": true,
+      "analytics": {
+        "budgetAnalysis": {
+          "enabled": true,
+          "detectTrends": true,
+          "forecastSpending": true,
+          "identifyVariances": true,
+          "suggestActions": true
+        },
+        "scheduleAnalysis": {
+          "enabled": true,
+          "detectDelays": true,
+          "forecastCompletion": true,
+          "identifyRisks": true,
+          "suggestRecovery": true
+        },
+        "contractorPerformance": {
+          "enabled": true,
+          "analyzeResponseTimes": true,
+          "assessQuality": true,
+          "predictDelays": true,
+          "suggestActions": true
+        },
+        "permitCompliance": {
+          "enabled": true,
+          "trackExpirations": true,
+          "predictRenewalNeeds": true,
+          "flagRisks": true
+        }
+      }
+    },
+    "knowledgeBase": {
+      "enabled": true,
+      "contextWindow": 8000,
+      "systemPrompt": "You are an expert construction project manager AI for 9 Turnbull Court residential duplex development. You have deep knowledge of Australian building codes, Victorian council requirements, construction best practices, and project management. Provide professional, practical advice grounded in industry standards.",
+      "projectContext": {
+        "projectName": "9 Turnbull Court Duplex Development",
+        "location": "Brunswick West VIC 3055",
+        "projectType": "Residential Duplex",
+        "buildingCode": "National Construction Code 2022 (NCC)",
+        "jurisdiction": "Victoria, Australia",
+        "council": "Moonee Valley City Council"
+      },
+      "expertise": [
+        "construction_management",
+        "budget_control",
+        "schedule_management",
+        "risk_management",
+        "compliance_and_permits",
+        "contractor_management",
+        "document_management",
+        "cost_estimation",
+        "australian_building_codes",
+        "victorian_regulations"
+      ]
+    },
+    "automationTasks": {
+      "enabled": true,
+      "tasks": [
+        {
+          "id": "ai_invoice_review",
+          "name": "AI Invoice Analysis & Review",
+          "trigger": "new_invoice_added",
+          "actions": [
+            "analyze_invoice_with_ai",
+            "extract_all_fields",
+            "check_against_purchase_order",
+            "flag_discrepancies",
+            "validate_gst",
+            "approve_or_flag_for_review"
+          ]
+        },
+        {
+          "id": "ai_rfi_triage",
+          "name": "AI RFI Triage & Assignment",
+          "trigger": "new_rfi_received",
+          "actions": [
+            "analyze_rfi_content",
+            "classify_discipline",
+            "estimate_complexity",
+            "suggest_respondent",
+            "set_priority",
+            "notify_responsible_party"
+          ]
+        },
+        {
+          "id": "ai_risk_detection",
+          "name": "AI Risk Detection & Alerts",
+          "trigger": "daily_data_sync",
+          "actions": [
+            "analyze_project_data",
+            "detect_emerging_risks",
+            "assess_risk_level",
+            "suggest_mitigation",
+            "send_alerts_if_critical"
+          ]
+        },
+        {
+          "id": "ai_report_generation",
+          "name": "AI-Powered Report Generation",
+          "trigger": "scheduled_monthly",
+          "actions": [
+            "collect_project_data",
+            "generate_sections_with_ai",
+            "create_visualizations",
+            "write_insights",
+            "format_and_distribute"
+          ]
+        },
+        {
+          "id": "ai_communication_draft",
+          "name": "AI Communication Drafting",
+          "trigger": "on_demand",
+          "actions": [
+            "analyze_situation",
+            "generate_draft",
+            "check_tone_and_professionalism",
+            "suggest_revisions",
+            "ready_for_review"
+          ]
+        }
+      ]
+    },
+    "safety": {
+      "enableAuditLogging": true,
+      "logAIRequests": true,
+      "humanReviewRequired": [
+        "final_report_approval",
+        "budget_decisions_over_5000",
+        "contractor_escalations",
+        "permit_applications",
+        "payment_approvals"
+      ],
+      "dataPrivacy": {
+        "stripPersonalData": true,
+        "encryptSensitiveData": true,
+        "noDataRetention": true,
+        "compliesWith": "Australian Privacy Act 1988"
+      },
+      "costControl": {
+        "monthlyBudget": 500,
+        "alertThreshold": 400,
+        "trackTokenUsage": true,
+        "optimizePrompts": true
+      }
+    },
+    "performance": {
+      "caching": true,
+      "cacheTTL": 3600,
+      "batchProcessing": true,
+      "maxConcurrentRequests": 5,
+      "timeout": 60000,
+      "retryPolicy": {
+        "maxRetries": 3,
+        "backoffMultiplier": 2
+      }
+    }
+  }
+}
